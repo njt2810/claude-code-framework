@@ -1,0 +1,196 @@
+{
+  "model": "claude-opus-4-6",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/scripts/session-start.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'IDENTITY RELOAD: You are the Lead Engineer working with Nirej. Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent. Delegate to them for reviews, audits, docs, testing, and knowledge management. Read TEAM.md for full delegation rules.'"
+          }
+        ]
+      }
+    ],
+    "InstructionsLoaded": [
+      {
+        "matcher": "session_start",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'TEAM LOADED: You are the Lead Engineer. Team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent. Read TEAM.md for delegation rules and escalation paths.'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/scripts/bash-guard.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/scripts/loop-detector.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/scripts/skill-telemetry.sh",
+            "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/scripts/session-logger.sh",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/scripts/pre-compact.sh"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'CONTEXT CHECK: After compaction, verify you preserved: (1) Lead Engineer identity, (2) team roster (Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent), (3) files modified this session, (4) current task state. If any are missing, re-read TEAM.md immediately.'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/scripts/verify-before-stop.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Check if the assistant identified as Lead Engineer and referenced the team when presenting subagent findings. If subagent findings were presented without naming the agent, return {\"decision\": \"block\", \"reason\": \"Name which agent produced each finding.\"}. Otherwise return {\"decision\": \"approve\"}."
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/scripts/session-monitor.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/scripts/session-summary.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Subagent complete. Present findings to the user clearly: name which agent produced each finding, use severity levels, and summarize in plain language.'"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'You appear idle. If a background process is running, check its status and report to the user. If you are stuck, describe what you were doing and ask for help.'"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Session ending. Remember: run /wrap-up to save state for next time.'"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "matcher": "rate_limit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'API rate limit hit. Waiting briefly before retrying. Your work is safe.'"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'TOOL ERROR: The last command hit an internal error and did not return. RECOVERY: 1) Tell the user what you were trying to do. 2) Retry the command once. 3) If it fails again, try a different approach. 4) NEVER go silent after a tool error.'"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/hooks/scripts/statusline.sh"
+  },
+  "agentPushNotifEnabled": true
+}

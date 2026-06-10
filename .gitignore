@@ -1,0 +1,10 @@
+# Session artifacts
+.claude/session-log.jsonl
+logs/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Zip artifacts
+*.zip
