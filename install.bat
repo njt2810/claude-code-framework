@@ -174,8 +174,8 @@ echo     Templates   - wiki CI/CD rules
 echo.
 echo   To use: open any project folder in Claude Code and type:
 echo     /init-project personal
-echo     /init-project omasu
-echo     /init-project xtend
+echo     /init-project org1
+echo     /init-project org2
 echo     /init-project learning
 echo.
 echo   Type /help inside Claude Code to see all commands.

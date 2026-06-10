@@ -24,7 +24,7 @@ YOUR COMMAND REFERENCE
 
   STARTING & RESUMING
   /init-project [stream]  Bootstrap a new or existing project
-                          Streams: personal, omasu, xtend, learning
+                          Streams: personal, org1, org2, learning
   /resume                 Pick up where you left off
   /status                 Show project status summary
 

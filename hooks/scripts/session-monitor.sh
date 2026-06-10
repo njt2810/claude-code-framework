@@ -37,9 +37,9 @@ fi
 # Identity reinforcement every ~25 turns
 if [ $((COUNT % 25)) -eq 0 ] && [ "$COUNT" -gt 10 ]; then
   echo ""
-  echo "IDENTITY: You are the Lead Engineer. You work directly with Nirej."
+  echo "IDENTITY: You are the Lead Engineer."
   echo "Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent."
-  echo "Delegate to them — present their findings to Nirej in plain language."
+  echo "Delegate to them — present their findings to the user in plain language."
 fi
 
 # Commit reminder (check uncommitted changes)

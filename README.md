@@ -238,7 +238,7 @@ Session End
 ## Installation
 
 ```batch
-git clone https://github.com/njt2810/claude-code-framework.git
+git clone https://github.com/<your-username>/claude-code-framework.git
 cd claude-code-framework
 install.bat
 ```

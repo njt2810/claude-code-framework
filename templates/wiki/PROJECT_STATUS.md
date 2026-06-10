@@ -1,7 +1,7 @@
 # Project Status
 
 - **Project:** {name}
-- **Stream:** {personal/omasu/xtend}
+- **Stream:** {personal/org1/org2}
 - **Status:** active
 - **Last documented:** {date}
 - **Stack:** {languages, frameworks}

@@ -38,7 +38,7 @@ Display:
 ```
 {Project Name} — Status
 
-  Stream:       {personal/omasu/xtend}
+  Stream:       {personal/org1/org2}
   Status:       {active/paused/complete}
   Stack:        {language, framework}
   Last commit:  {date and message}

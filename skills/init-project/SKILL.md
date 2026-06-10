@@ -29,29 +29,29 @@ The stream argument tells you which context this project belongs to.
 Based on $ARGUMENTS (or ask if not provided), apply these settings:
 
 ### personal
-- GitHub org: `github.com/njt2810` (personal account)
+- GitHub org: `github.com/<your-username>` (personal account)
 - GitHub naming: `{project_name}` (no prefix)
-- Obsidian wiki: `C:\Users\Nirej\Documents\Personal\AI-Wiki`
+- Obsidian wiki: `<your-wiki-path>`
 - Cost tracking: yes
-- Cost dashboard: `C:\Users\Nirej\Documents\Personal\5-Project Dashboard`
+- Cost dashboard: `<your-dashboard-path>`
 
-### omasu
-- GitHub org: `github.com/omasu2-0` (omasu org)
+### org1
+- GitHub org: `github.com/<org1>` (org1 org)
 - GitHub naming: `{project_name}` (no prefix needed — org provides context)
-- Obsidian wiki: `C:\Users\Nirej\Documents\Personal\6-Omasu\Omasu-Wiki`
+- Obsidian wiki: `<your-org1-wiki-path>`
 - Cost tracking: yes
-- Cost dashboard: `C:\Users\Nirej\Documents\Personal\5-Project Dashboard`
+- Cost dashboard: `<your-dashboard-path>`
 
-### xtend
-- GitHub org: `github.com/xtend-adtech` (xtend org)
+### org2
+- GitHub org: `github.com/<org2>` (org2 org)
 - GitHub naming: `{project_name}` (no prefix needed — org provides context)
-- Obsidian wiki: `C:\Users\Nirej\Documents\Personal\AI-Wiki`
+- Obsidian wiki: `<your-wiki-path>`
 - Cost tracking: no (employer pays)
 - Cost dashboard: n/a
 
 ### learning
 - GitHub naming: none (no repo)
-- Obsidian wiki: `C:\Users\Nirej\Documents\Personal\AI-Wiki`
+- Obsidian wiki: `<your-wiki-path>`
 - Cost tracking: no
 - Minimal setup: CLAUDE.md + skills/learned/ + wiki/ only
 - No agents, no CI/CD, no hooks, no rules
@@ -59,8 +59,8 @@ Based on $ARGUMENTS (or ask if not provided), apply these settings:
 If no stream is provided, ask:
 "Which stream is this project for?
  1. personal — your own projects
- 2. omasu — side hustle / client work
- 3. xtend — work projects
+ 2. org1 — side hustle / client work
+ 3. org2 — work projects
  4. learning — experiments, no shipping"
 
 ## Step 1 — Detect Existing Project
@@ -123,9 +123,9 @@ Execute these steps, skipping any that are already present:
 - If `.git/` missing: `git init`
 - If stream is NOT learning: check if `gh` CLI is available
   - If `gh` available: create private repo on the correct GitHub org:
-    - personal → `gh repo create njt2810/{project_name} --private`
-    - omasu → `gh repo create omasu2-0/{project_name} --private`
-    - xtend → `gh repo create xtend-adtech/{project_name} --private`
+    - personal → `gh repo create <your-username>/{project_name} --private`
+    - org1 → `gh repo create <org1>/{project_name} --private`
+    - org2 → `gh repo create <org2>/{project_name} --private`
   - If `gh` not available: say "GitHub CLI (gh) is not installed. I can help you install it later, or you can create the repo manually on github.com. Continuing without GitHub integration."
 - If stream IS learning: skip GitHub entirely
 
@@ -151,7 +151,7 @@ CLAUDE.md template (adapt based on detected stack and stream):
 - Lint: {detected or "to be configured"}
 
 ## Project Context
-Stream: {personal/omasu/xtend}
+Stream: {personal/org1/org2}
 Obsidian wiki: {path from stream config}
 {If cost tracking enabled}: Cost dashboard: {path}
 
