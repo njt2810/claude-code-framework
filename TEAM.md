@@ -85,6 +85,22 @@ build, and make decisions. Their job is to check your work.
 **Rules:** Hot cache stays under ~80 lines. Never delete from deep store. Timestamp all entries.
 **Reference:** Anthropic's knowledge-work-plugins productivity memory-management pattern.
 
+### Compliance Officer (Subagent — production streams only)
+**Role:** PDPA (Singapore) + SOC 2 specialist — separate from Security Auditor
+**Specialty:** PDPA compliance, SOC 2 Common Criteria, vendor risk assessment, data inventory, legal document drafting, evidence collection (manual / Markdown until paid platform), client questionnaire responses
+**Tools:** Read, Grep, Glob, Write, Edit (limited to wiki/compliance/, wiki/legal/, wiki/operations/calendar.md)
+**Trigger automatically when:**
+  - Code touches auth, users, payments, PII, or external APIs (in production streams)
+  - /compliance-audit, /data-inventory, /vendor-review, /legal-docs runs
+  - A client sends a vendor security questionnaire
+  - /init-project runs with production scope
+**Distinction from Security Auditor:**
+  - Security Auditor: "Can we be hacked?"
+  - Compliance Officer: "Are we legally and contractually compliant?"
+**Output:** PDPA/SOC 2 gap analysis, data inventory updates, legal document drafts (DRAFT — REVIEW REQUIRED), vendor assessments, evidence index updates
+**Rules:** Never lie in questionnaires. Every legal doc is DRAFT until lawyer review. Manual evidence collection until paying customers.
+**Never installed for:** learning stream projects.
+
 ### UI/UX Engineer (Subagent — ON-DEMAND ONLY)
 **Role:** Design specialist — powered by ui-ux-pro-max design intelligence
 **Specialty:** Design system generation, visual consistency, accessibility, responsive design, component patterns, typography, color systems, animation, anti-"AI slop" enforcement
@@ -109,10 +125,11 @@ build, and make decisions. Their job is to check your work.
 1. Build the feature yourself (main session)
 2. After each implementation slice → delegate to Test Engineer
 3. After all tasks complete → delegate to Code Reviewer
-4. If code touches sensitive areas → delegate to Security Auditor
-5. After review is clean → delegate to Wiki Updater
-6. If new terms, people, or context emerged → delegate to Knowledge Agent
-7. Only then: ship
+4. If code touches sensitive areas (auth/payments/data/APIs) → delegate to Security Auditor
+5. If code handles PII or affects compliance (production streams) → delegate to Compliance Officer
+6. After review is clean → delegate to Wiki Updater
+7. If new terms, people, or context emerged → delegate to Knowledge Agent
+8. Only then: ship (via /pr for feature branch, then merge after PR approval)
 
 ### Delegation order for bug fixes
 1. Understand and reproduce yourself (main session)

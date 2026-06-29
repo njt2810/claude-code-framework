@@ -21,22 +21,27 @@ if not exist "%CLAUDE_HOME%\templates\wiki\runbooks" mkdir "%CLAUDE_HOME%\templa
 if not exist "%CLAUDE_HOME%\templates\wiki\logs" mkdir "%CLAUDE_HOME%\templates\wiki\logs"
 if not exist "%CLAUDE_HOME%\templates\rules" mkdir "%CLAUDE_HOME%\templates\rules"
 if not exist "%CLAUDE_HOME%\templates\ci" mkdir "%CLAUDE_HOME%\templates\ci"
+if not exist "%CLAUDE_HOME%\templates\legal" mkdir "%CLAUDE_HOME%\templates\legal"
+if not exist "%CLAUDE_HOME%\templates\security-policies" mkdir "%CLAUDE_HOME%\templates\security-policies"
+if not exist "%CLAUDE_HOME%\templates\compliance" mkdir "%CLAUDE_HOME%\templates\compliance"
+if not exist "%CLAUDE_HOME%\templates\operations" mkdir "%CLAUDE_HOME%\templates\operations"
+if not exist "%CLAUDE_HOME%\templates\vendor" mkdir "%CLAUDE_HOME%\templates\vendor"
 echo    Done.
 
 echo [2/9] Installing skills (slash commands)...
-for %%S in (init-project new-feature bug-fix wrap-up resume learn help document-all evaluate-repo status security-check constitution review-drift knowledge production-audit review-ui framework-check curate lock-skill unlock-skill pin-skill unpin-skill) do (
+for %%S in (init-project new-feature bug-fix wrap-up resume learn help document-all evaluate-repo status security-check constitution review-drift knowledge production-audit review-ui framework-check curate lock-skill unlock-skill pin-skill unpin-skill pr compliance-audit data-inventory legal-docs audit-logging-setup vendor-review compliance-status env-setup observability-setup deploy dr-plan incident release feature-flag auth-setup billing-setup email-setup triage) do (
     if not exist "%CLAUDE_HOME%\skills\%%S" mkdir "%CLAUDE_HOME%\skills\%%S"
     copy /Y "skills\%%S\SKILL.md" "%CLAUDE_HOME%\skills\%%S\SKILL.md" >nul 2>&1
 )
-echo    22 skills installed.
+echo    40 skills installed.
 
 echo [3/9] Installing agents...
 copy /Y "agents\*.md" "%CLAUDE_HOME%\agents\" >nul 2>&1
-echo    6 agents installed (5 always-on + 1 on-demand).
+echo    7 agents installed (6 always-on + 1 on-demand).
 
 echo [4/9] Installing rules...
 copy /Y "rules\*.md" "%CLAUDE_HOME%\rules\" >nul 2>&1
-echo    5 global rules installed.
+echo    9 global rules installed.
 
 echo [5/9] Installing hooks...
 copy /Y "hooks\scripts\*.sh" "%CLAUDE_HOME%\hooks\scripts\" >nul 2>&1
@@ -52,12 +57,18 @@ if not exist "%CLAUDE_HOME%\logs\skill-usage.log" type nul > "%CLAUDE_HOME%\logs
 echo    Telemetry log ready.
 
 echo [8/9] Installing templates...
+copy /Y "templates\*.md" "%CLAUDE_HOME%\templates\" >nul 2>&1
 copy /Y "templates\wiki\*.md" "%CLAUDE_HOME%\templates\wiki\" >nul 2>&1
 copy /Y "templates\wiki\decisions\*.md" "%CLAUDE_HOME%\templates\wiki\decisions\" >nul 2>&1
 copy /Y "templates\wiki\runbooks\*.md" "%CLAUDE_HOME%\templates\wiki\runbooks\" >nul 2>&1
 copy /Y "templates\rules\*.md" "%CLAUDE_HOME%\templates\rules\" >nul 2>&1
 copy /Y "templates\ci\*.yml" "%CLAUDE_HOME%\templates\ci\" >nul 2>&1
-echo    Templates installed.
+copy /Y "templates\legal\*.md" "%CLAUDE_HOME%\templates\legal\" >nul 2>&1
+copy /Y "templates\security-policies\*.md" "%CLAUDE_HOME%\templates\security-policies\" >nul 2>&1
+copy /Y "templates\compliance\*.md" "%CLAUDE_HOME%\templates\compliance\" >nul 2>&1
+copy /Y "templates\operations\*.md" "%CLAUDE_HOME%\templates\operations\" >nul 2>&1
+copy /Y "templates\vendor\*.md" "%CLAUDE_HOME%\templates\vendor\" >nul 2>&1
+echo    Templates installed (wiki, rules, ci, legal, security-policies, compliance, operations, vendor).
 
 echo [9/9] Installing global CLAUDE.md and TEAM.md...
 if exist "%CLAUDE_HOME%\CLAUDE.md" (
@@ -98,7 +109,7 @@ if exist "%CLAUDE_HOME%\settings.json" (
 )
 
 if exist "%CLAUDE_HOME%\agents\code-reviewer.md" (
-    echo    OK: 6 agents
+    echo    OK: 7 agents
 ) else (
     echo    MISSING: agents
     set /a ERRORS+=1
@@ -112,7 +123,7 @@ if exist "%CLAUDE_HOME%\hooks\scripts\verify-before-stop.sh" (
 )
 
 if exist "%CLAUDE_HOME%\skills\init-project\SKILL.md" (
-    echo    OK: 22 skills
+    echo    OK: 40 skills
 ) else (
     echo    MISSING: skills
     set /a ERRORS+=1
@@ -150,7 +161,8 @@ echo.
 echo   Location: %CLAUDE_HOME%
 echo.
 echo   Installed:
-echo     22 skills   - /init-project /new-feature /bug-fix
+echo     40 skills   (core)
+echo                   /init-project /new-feature /bug-fix /pr
 echo                   /wrap-up /resume /learn /help
 echo                   /document-all /evaluate-repo /status
 echo                   /security-check /constitution
@@ -159,18 +171,34 @@ echo                   /production-audit /review-ui
 echo                   /framework-check /curate
 echo                   /lock-skill /unlock-skill
 echo                   /pin-skill /unpin-skill
-echo     6 agents    - code-reviewer test-engineer
+echo                 (compliance pack)
+echo                   /compliance-audit /data-inventory
+echo                   /legal-docs /audit-logging-setup
+echo                   /vendor-review /compliance-status
+echo                 (operations pack)
+echo                   /env-setup /observability-setup
+echo                   /deploy /dr-plan /incident
+echo                   /release /feature-flag
+echo                 (SaaS business pack)
+echo                   /auth-setup /billing-setup
+echo                   /email-setup /triage
+echo     7 agents    - code-reviewer test-engineer
 echo                   wiki-updater security-auditor
 echo                   knowledge-agent ui-ux-engineer
-echo     5 rules     - security capability-gaps skill-evolution
+echo                   compliance-officer (production)
+echo     9 rules     - security capability-gaps skill-evolution
 echo                   config-protection fact-forcing
+echo                   pii-handling change-management
+echo                   secrets-management audit-everything
 echo     12 hooks    - session-start bash-guard pre-compact
 echo                   verify-before-stop session-monitor
 echo                   session-summary loop-detector
 echo                   session-logger statusline
 echo                   skill-telemetry idle-detection
 echo                   session-end
-echo     Templates   - wiki CI/CD rules
+echo     Templates   - wiki CI/CD rules legal
+echo                   security-policies compliance
+echo                   operations vendor
 echo.
 echo   To use: open any project folder in Claude Code and type:
 echo     /init-project personal

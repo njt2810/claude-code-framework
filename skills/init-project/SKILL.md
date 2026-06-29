@@ -34,6 +34,7 @@ Based on $ARGUMENTS (or ask if not provided), apply these settings:
 - Obsidian wiki: `<your-wiki-path>`
 - Cost tracking: yes
 - Cost dashboard: `<your-dashboard-path>`
+- **Production scope: OFF by default** — user must explicitly opt in (see Production Scope section)
 
 ### org1
 - GitHub org: `github.com/<org1>` (org1 org)
@@ -41,6 +42,7 @@ Based on $ARGUMENTS (or ask if not provided), apply these settings:
 - Obsidian wiki: `<your-org1-wiki-path>`
 - Cost tracking: yes
 - Cost dashboard: `<your-dashboard-path>`
+- **Production scope: ON**
 
 ### org2
 - GitHub org: `github.com/<org2>` (org2 org)
@@ -48,6 +50,7 @@ Based on $ARGUMENTS (or ask if not provided), apply these settings:
 - Obsidian wiki: `<your-wiki-path>`
 - Cost tracking: no (employer pays)
 - Cost dashboard: n/a
+- **Production scope: ON**
 
 ### learning
 - GitHub naming: none (no repo)
@@ -55,6 +58,7 @@ Based on $ARGUMENTS (or ask if not provided), apply these settings:
 - Cost tracking: no
 - Minimal setup: CLAUDE.md + skills/learned/ + wiki/ only
 - No agents, no CI/CD, no hooks, no rules
+- **Production scope: NEVER**
 
 If no stream is provided, ask:
 "Which stream is this project for?
@@ -62,6 +66,34 @@ If no stream is provided, ask:
  2. org1 — side hustle / client work
  3. org2 — work projects
  4. learning — experiments, no shipping"
+
+## Production Scope
+
+When `Production scope` is ON for the stream (or the user explicitly opts in for
+personal), `/init-project` ADDITIONALLY installs these on top of the base setup:
+
+1. **Branch protection on the GitHub repo** — main branch locked, requires PR + review + CI green
+2. **Compliance Officer agent** added to the team (see Step 3.3.5)
+3. **Production directory structure** in `wiki/`:
+   - `wiki/compliance/` — gap analysis, data inventory, vendor register, evidence index
+   - `wiki/legal/` — DPA, Privacy Policy, ToS (draft, REVIEW REQUIRED)
+   - `wiki/operations/` — deploy runbook, rollback runbook, incident response, on-call rotation
+4. **10 security policies** (draft) in `wiki/compliance/policies/`:
+   - Acceptable Use, Access Control, Password, Encryption, Vulnerability Management,
+     Vendor Management, Data Classification, Data Retention, Business Continuity, Incident Response
+5. **Compliance workbook** — manual SOC 2 evidence collection in Markdown
+6. **Audit logging scaffold** — middleware/helpers stub based on stack
+7. **Environment separation** — `.env.development.example`, `.env.staging.example`, `.env.production.example`
+8. **Production-specific .gitignore entries** — `audit-logs/`, `evidence/`, `backups/`
+
+**Decision logic:**
+- learning → NEVER apply production scope
+- personal → ask "Enable production scope? This adds compliance docs, security
+  policies, branch protection, and audit logging. Recommended when shipping to
+  real users. (yes/no)"
+- org1, org2 → apply production scope by default (no prompt)
+
+Steps that depend on production scope are marked `(production)` below.
 
 ## Step 1 — Detect Existing Project
 
@@ -212,6 +244,11 @@ cp ~/.claude/agents/wiki-updater.md .claude/agents/
 cp ~/.claude/agents/security-auditor.md .claude/agents/
 cp ~/.claude/agents/knowledge-agent.md .claude/agents/
 cp ~/.claude/agents/ui-ux-engineer.md .claude/agents/
+```
+
+**(production)** Also copy Compliance Officer agent:
+```
+cp ~/.claude/agents/compliance-officer.md .claude/agents/
 ```
 
 If the global agent files don't exist (framework not installed globally),
@@ -418,6 +455,158 @@ git commit -m "Project bootstrapped via init-project ({stream} profile)"
 ```
 If GitHub remote exists, push.
 
+### 3.14 Branch Protection (production)
+
+If production scope is ON and a GitHub remote was created:
+
+1. Check current `gh` auth: `gh auth status`
+2. Enable branch protection on main:
+   ```
+   gh api -X PUT repos/{org}/{repo}/branches/main/protection \
+     -f required_pull_request_reviews[required_approving_review_count]=1 \
+     -f required_status_checks[strict]=true \
+     -f enforce_admins=false \
+     -f restrictions=null
+   ```
+3. If `gh api` fails (e.g., free GitHub repos can't enforce protection unless public),
+   warn: "Branch protection requires GitHub Pro for private repos, or a public repo.
+   For now, change-management is enforced by convention (PRs from feature branches)."
+4. Document the protection in `wiki/operations/change-management.md`
+
+### 3.15 Production Directory Structure (production)
+
+If production scope is ON, create these directories with starter files:
+
+**`wiki/compliance/`:**
+- `gaps.md` — empty: "# Compliance Gaps\n\nRun /compliance-audit to populate."
+- `data-inventory.md` — empty: "# Data Inventory\n\nRun /data-inventory to populate."
+- `vendor-register.md` — empty table: vendor, data_processed, dpa_link, soc2_status, review_date
+- `evidence-index.md` — empty table: control, evidence_location, last_collected, owner
+- `policies/` — see Step 3.16
+
+**`wiki/legal/`:**
+- `dpa-template.md` — copy from `~/.claude/templates/legal/dpa-template.md` (see Templates Pack)
+- `privacy-policy.md` — copy from template, header: "DRAFT — LAWYER REVIEW REQUIRED"
+- `terms-of-service.md` — copy from template, same header
+- `cookie-policy.md` — copy from template
+
+**`wiki/operations/`:**
+- `deploy-runbook.md` — copy from template
+- `rollback-runbook.md` — copy from template
+- `incident-response.md` — already exists from base setup; move/link from wiki/runbooks/
+- `on-call-rotation.md` — empty template
+- `change-management.md` — describes the PR + branch protection workflow
+
+If the templates haven't been installed globally yet, create placeholder files
+with a comment: "TODO: copy from ~/.claude/templates/legal/{name}.md once
+Templates Pack is installed."
+
+### 3.16 Security Policies Pack (production)
+
+If production scope is ON, copy the 10 standard security policies to
+`wiki/compliance/policies/`:
+
+```
+mkdir -p wiki/compliance/policies/
+for policy in acceptable-use access-control password-policy encryption-policy \
+              vulnerability-management vendor-management data-classification \
+              data-retention business-continuity incident-response; do
+  cp ~/.claude/templates/security-policies/$policy.md \
+     wiki/compliance/policies/$policy.md
+done
+```
+
+Each policy has a DRAFT header: "REVIEW REQUIRED — adapt to this project before adopting."
+
+If the global templates haven't been installed yet, create placeholders:
+"TODO: copy from ~/.claude/templates/security-policies/{name}.md once
+Templates Pack is installed."
+
+### 3.17 Audit Logging Scaffold (production)
+
+If production scope is ON, set up audit logging based on detected stack:
+
+**For Node/TypeScript projects:**
+- Create `src/lib/audit-log.ts` (or `src/audit/index.ts`) with a stub:
+  ```typescript
+  // Audit log helper — wire to your logger of choice (Logflare, Better Stack, Datadog)
+  export type AuditEvent = {
+    actor: string;        // user_id or "system"
+    action: string;       // "user.login", "data.export", etc.
+    resource: string;     // resource_id affected
+    metadata?: Record<string, unknown>;
+    timestamp: string;    // ISO 8601
+  };
+
+  export async function audit(event: AuditEvent): Promise<void> {
+    // TODO: wire to your audit log destination
+    console.log("[AUDIT]", JSON.stringify(event));
+  }
+  ```
+
+**For Python projects:**
+- Create `src/audit_log.py` with a stub:
+  ```python
+  # Audit log helper — wire to your logger of choice
+  from datetime import datetime
+  from typing import Any
+  import json
+
+  def audit(actor: str, action: str, resource: str, **metadata: Any) -> None:
+      event = {
+          "actor": actor,
+          "action": action,
+          "resource": resource,
+          "metadata": metadata,
+          "timestamp": datetime.utcnow().isoformat() + "Z",
+      }
+      # TODO: wire to your audit log destination
+      print("[AUDIT]", json.dumps(event))
+  ```
+
+After creating, document in `wiki/compliance/audit-logging.md`:
+- What events to log (auth, data access, config changes, admin actions)
+- Where logs go (TBD — user picks vendor in their project)
+- Retention policy (default: 1 year, configurable per regulation)
+
+### 3.18 Compliance Workbook (production)
+
+If production scope is ON, create the SOC 2 evidence collection workbook
+in `wiki/compliance/`:
+
+- `soc2-controls.md` — table mapping SOC 2 Common Criteria to your implementation
+- `evidence/` — directory for collected evidence (screenshots, exports, attestations)
+- `evidence/_index.md` — running index of evidence files
+- `risk-register.md` — risks with impact/likelihood/mitigation
+- `asset-inventory.md` — systems, services, data stores
+
+These start as templates that the Compliance Officer agent populates over time.
+
+### 3.19 Environment Separation (production)
+
+If production scope is ON, set up multi-environment env files:
+
+```
+cp .env.example .env.development.example
+cp .env.example .env.staging.example
+cp .env.example .env.production.example
+```
+
+Add to `.gitignore` (if not already there):
+```
+.env.development
+.env.staging
+.env.production
+audit-logs/
+evidence/
+backups/
+```
+
+Document the env separation in `wiki/operations/environments.md`:
+- Which env vars differ per environment
+- Where each environment's secrets are stored (recommend a secret manager —
+  user picks vendor in their project)
+
 ## Step 4 — Team Verification (CRITICAL)
 
 After all setup steps, verify that the team infrastructure is discoverable.
@@ -435,17 +624,19 @@ Check each of these and report:
 - .claude/agents/security-auditor.md: {found/MISSING}
 - .claude/agents/knowledge-agent.md: {found/MISSING}
 - .claude/agents/ui-ux-engineer.md: {found/MISSING}
+- **(production)** .claude/agents/compliance-officer.md: {found/MISSING}
 
 If ALL found:
 ```
 Team verification: PASS
-  Code Reviewer: found
-  Test Engineer: found
-  Wiki Updater: found
-  Security Auditor: found
-  Knowledge Agent: found
-  UI/UX Engineer: found
-  TEAM.md: found
+  Code Reviewer:      found
+  Test Engineer:      found
+  Wiki Updater:       found
+  Security Auditor:   found
+  Knowledge Agent:    found
+  UI/UX Engineer:     found
+  Compliance Officer: found  (production only)
+  TEAM.md:            found
 ```
 
 If ANY missing:
@@ -461,15 +652,24 @@ After all steps complete, present a summary:
 ```
 {project_name} initialized
 
-  Stream:     {stream}
-  GitHub:     {repo URL or "not configured"}
-  Stack:      {detected stack}
-  Rules:      {count} active ({list})
-  Wiki:       {count} pages ({existing} existing + {new} new)
-  CI/CD:      {status}
-  Graphify:   {status}
-  Security:   {PASS / {count} issues found and remediated / {count} issues need attention}
-  Team:       {PASS / INCOMPLETE}
+  Stream:           {stream}
+  Production scope: {ON / OFF}
+  GitHub:           {repo URL or "not configured"}
+  Stack:            {detected stack}
+  Rules:            {count} active ({list})
+  Wiki:             {count} pages ({existing} existing + {new} new)
+  CI/CD:            {status}
+  Graphify:         {status}
+  Security:         {PASS / {count} issues found and remediated / {count} issues need attention}
+  Team:             {PASS / INCOMPLETE}
+
+  (production-only outputs below — omit if production scope is OFF)
+  Branch protection: {ON / disabled — reason}
+  Compliance docs:   {N} files in wiki/compliance/
+  Legal docs:        {N} drafts in wiki/legal/ (LAWYER REVIEW REQUIRED)
+  Security policies: {10/10} in wiki/compliance/policies/ (REVIEW REQUIRED)
+  Audit logging:     scaffold created at {path}
+  Env separation:    .env.development.example, .env.staging.example, .env.production.example
 
   Obsidian:   {path from stream config}
   {If cost tracking}: Costs: {dashboard path}
@@ -478,11 +678,19 @@ After all steps complete, present a summary:
   {List any issues found}
 
   Ready to build.
-  /resume       pick up previous work (if session logs exist)
-  /new-feature  start building something new
-  /bug-fix      fix something that's broken
-  /status       see project overview
-  /help         see all available commands
+  /resume          pick up previous work (if session logs exist)
+  /new-feature     start building something new (creates feature branch + PR)
+  /bug-fix         fix something that's broken (creates fix branch + PR)
+  /pr              open a PR from the current branch
+  /status          see project overview
+  /help            see all available commands
+
+  (production-only commands)
+  /compliance-audit  PDPA + SOC 2 gap analysis
+  /data-inventory    map PII flows in the codebase
+  /legal-docs        draft DPA / Privacy Policy / ToS
+  /deploy [env]      deploy to dev/staging/production
+  /incident          start incident response
 ```
 
 ## Pitfalls
@@ -492,6 +700,10 @@ After all steps complete, present a summary:
 - Not verifying team setup at the end — silent failure defeats the purpose
 - Running graphify install without asking — follow capability-gaps protocol
 - Learning stream should NOT get agents, CI/CD, hooks, or rules
+- Forgetting to ask "production scope?" for personal stream — defaults to OFF, user must opt in
+- Skipping Step 3.14 (branch protection) on production streams — change management collapses
+- Skipping Step 3.16 (security policies) on production streams — SOC 2 evidence pipeline never starts
+- Production scope for learning stream — NEVER. Reject if user asks.
 
 ## Verification
 

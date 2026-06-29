@@ -29,6 +29,22 @@ Not for new features, refactoring, performance improvements, or cleanup.
 This workflow prevents the fix-break death spiral.
 Follow every step. Do not skip steps. Do not shortcut.
 
+## Step 0 — Create Fix Branch
+
+Before any investigation or code changes:
+
+1. Check current branch: `git rev-parse --abbrev-ref HEAD`
+2. If on `main`/`master`: branch from here
+3. If on another branch: ask "You're on branch {X}. Branch from main instead? (yes/no)"
+4. Generate a short, descriptive branch name from the bug:
+   - Format: `fix/{kebab-case-bug-description}`
+   - Example: `fix/login-timeout-on-slow-network`
+5. Create and switch: `git checkout -b fix/{name}`
+6. Announce: "Fix branch created: fix/{name}. All work happens here, including the failing test."
+
+For trunk-based projects (single main branch, no PR workflow), skip branch creation
+and work on main. Detect from wiki/conventions.md or ask the user.
+
 ## Step 1 — UNDERSTAND (do not write any code yet)
 
 1. Read the error message, log output, or bug description
@@ -135,14 +151,28 @@ If the user says /rewind or asks to start fresh:
 2. This removes failed approaches from context (prevents pollution)
 3. Start over at Step 1 with fresh context and a new hypothesis
 
-## Step 8 — DOCUMENT
+## Step 8 — DOCUMENT & OPEN PR
 
 After the fix is verified:
-1. Commit: `fix: {description of the bug and fix}`
-2. If this was a non-obvious bug, consider capturing the pattern:
+1. Commit on the fix branch: `fix: {description of the bug and fix}`
+2. Invoke the `/pr` skill to:
+   - Push the fix branch
+   - Create a PR with the bug description and the test that proves the fix
+   - Delegate to Code Reviewer
+3. If this was a non-obvious bug, consider capturing the pattern:
    "This was a non-obvious bug. Worth capturing the debugging pattern? (/learn)"
-3. If the bug reveals a design flaw, note it:
+4. If the bug reveals a design flaw, note it:
    "This bug suggests {design issue}. Consider an ADR in wiki/decisions/."
+
+For trunk-based projects, push directly to main and skip the PR step.
+
+## Step 9 — MERGE & CLEANUP
+
+After PR is approved and CI green:
+
+1. Squash merge: `gh pr merge {PR_number} --squash --delete-branch`
+2. Switch back to main: `git checkout main && git pull`
+3. Announce: "Fix merged to main. Bug closed."
 
 ## Red Flags — STOP immediately if any of these occur:
 
@@ -184,5 +214,7 @@ When a red flag occurs:
 - The failing test from Step 3 now passes
 - The full test suite has no new failures
 - Only one thing was changed (minimal fix)
-- The fix was committed with a descriptive message
-- Code Reviewer approved the fix
+- The fix was committed on the fix branch (not main)
+- PR opened with the failing-test-now-passes as the proof
+- Code Reviewer approved the fix on the PR
+- After merge: branch deleted, main pulled, working tree clean

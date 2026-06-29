@@ -119,6 +119,23 @@ Break the spec into implementation tasks:
 
 Present the plan. GATE — Wait for approval.
 
+## Step 5.5 — Create Feature Branch
+
+Before writing any code, create an isolated branch:
+
+1. Check current branch: `git rev-parse --abbrev-ref HEAD`
+2. If currently on `main`/`master`: good, branch from here
+3. If on another feature branch: ask "You're on branch {X}. Branch from main instead? (yes/no)"
+4. Generate a branch name from the feature name:
+   - Format: `feature/{kebab-case-name}`
+   - Example: `feature/user-onboarding-flow`
+5. Create and switch: `git checkout -b feature/{name}`
+6. Announce: "Branch created: feature/{name}. All work will happen here."
+
+If the project uses trunk-based development (single main branch, no feature branches),
+detect this from wiki/conventions.md or ask the user. If trunk-based, skip branch
+creation and commit directly to main.
+
 ## Step 6 — Build
 
 For each task in the plan:
@@ -127,7 +144,7 @@ For each task in the plan:
 2. Implement the task
 3. If the task involves new logic, write a test for it
 4. Run tests after completion: announce "Tests: {pass count} passing, {fail count} failing"
-5. Commit with a descriptive message: `feat: {what was done}`
+5. Commit to the feature branch with a descriptive message: `feat: {what was done}`
 6. Announce: "Task {X}/{N} complete"
 
 During building:
@@ -136,6 +153,7 @@ During building:
 - If you need a tool or library not installed, stop and explain what you need (capability-gaps protocol)
 - Never make changes outside the scope of the current task
 - For long-running commands (npm install, builds, etc.), use run_in_background and report progress
+- All commits stay on the feature branch — never commit to main directly
 
 ## Step 7 — Review
 
@@ -166,21 +184,44 @@ Delegate to the wiki-updater subagent:
  - wiki/memory.md with any knowledge gained
  Keep updates concise — facts, not essays."
 
-## Step 9 — Ship
+## Step 9 — Open PR
 
 1. Ensure all tests pass (full suite, not just new tests)
 2. Ensure linting passes (if configured)
 3. Create a final commit if any documentation was updated
-4. If CI/CD is configured, push and verify the pipeline passes
+4. Invoke the `/pr` skill to:
+   - Push the feature branch
+   - Create a PR with auto-filled description
+   - Delegate to Code Reviewer on the PR
 5. Summarize what was built:
 
 ```
 Feature complete: {feature name}
-   Tasks completed: {N}
-   Tests: {pass count} passing
+   Branch:        feature/{name}
+   PR:            {PR_URL}
+   Tasks:         {N} completed
+   Tests:         {pass count} passing
    Files changed: {count}
-   New files: {count}
+   New files:     {count}
+
+Next: address Code Reviewer findings on the PR, then merge with:
+   gh pr merge {PR_number} --squash --delete-branch
 ```
+
+For trunk-based projects (no PR workflow):
+1. Push directly: `git push origin main`
+2. Verify CI passes
+3. Report the summary above without PR URL
+
+## Step 10 — Merge & Cleanup
+
+After PR is approved and CI green:
+
+1. Squash merge to keep main history clean:
+   `gh pr merge {PR_number} --squash --delete-branch`
+2. Switch back to main locally: `git checkout main && git pull`
+3. The local feature branch is auto-cleaned by the `--delete-branch` flag
+4. Announce: "Merged to main. Branch cleaned up. Feature shipped."
 
 ## Pitfalls
 
@@ -189,6 +230,8 @@ Feature complete: {feature name}
 - Building before the plan is approved wastes time if the user wants a different approach
 - Not running the full test suite after each slice lets regressions accumulate
 - Forgetting to delegate to Security Auditor when the feature handles user input or auth
+- Committing to main directly bypasses change management — production streams require PR workflow
+- Force-pushing to a feature branch with an open PR is OK during review; never force-push to main
 
 ## Verification
 
@@ -197,4 +240,6 @@ Feature complete: {feature name}
 - Security Auditor approved (if feature touches auth/payments/user data/APIs)
 - Wiki updated with architecture and convention changes
 - Full test suite passes with no new failures
-- All tasks committed with descriptive messages
+- All tasks committed to the feature branch
+- PR opened with auto-filled description (or direct push if trunk-based)
+- After approval: squash-merged to main and feature branch deleted
