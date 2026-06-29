@@ -40,66 +40,81 @@ Checking global framework files...
 
 Verify each skill folder has a SKILL.md:
 
-```
-  Skills:
-    init-project:      {EXISTS / MISSING}
-    new-feature:       {EXISTS / MISSING}
-    bug-fix:           {EXISTS / MISSING}
-    wrap-up:           {EXISTS / MISSING}
-    resume:            {EXISTS / MISSING}
-    learn:             {EXISTS / MISSING}
-    help:              {EXISTS / MISSING}
-    document-all:      {EXISTS / MISSING}
-    evaluate-repo:     {EXISTS / MISSING}
-    security-check:    {EXISTS / MISSING}
-    status:            {EXISTS / MISSING}
-    framework-check:   {EXISTS / MISSING}
-    constitution:      {EXISTS / MISSING}
-    review-drift:      {EXISTS / MISSING}
-    knowledge:         {EXISTS / MISSING}
-    production-audit:  {EXISTS / MISSING}
-    review-ui:         {EXISTS / MISSING}
-    curate:            {EXISTS / MISSING}
-    lock-skill:        {EXISTS / MISSING}
-    unlock-skill:      {EXISTS / MISSING}
-    pin-skill:         {EXISTS / MISSING}
-    unpin-skill:       {EXISTS / MISSING}
-```
+Check that all 50 skill folders contain a SKILL.md. Use a glob over
+`~/.claude/skills/*/SKILL.md` and verify the expected set:
+
+Core:
+  init-project, new-feature, bug-fix, pr, wrap-up, resume, learn,
+  help, document-all, evaluate-repo, status, framework-check,
+  constitution, review-drift, knowledge
+
+Audits & reviews:
+  security-check, production-audit, review-ui
+
+Curation:
+  curate, lock-skill, unlock-skill, pin-skill, unpin-skill
+
+Lifecycle & coaching:
+  feature, recommend, add-rule, onboard-client
+
+Engineering hygiene:
+  migration, api-contract
+
+Production setup:
+  env-setup, observability-setup, audit-logging-setup, auth-setup,
+  billing-setup, email-setup, dr-plan
+
+Operations:
+  deploy, release, feature-flag, incident, triage
+
+Compliance (production streams):
+  compliance-audit, compliance-status, data-inventory,
+  legal-docs, vendor-review
+
+Safety modes:
+  careful, guard, freeze, unfreeze
+
+Report any missing as `MISSING — run install.bat to restore`.
 
 ## Step 3 — Check Agents
 
 ```
-  Agents:
-    code-reviewer:     {EXISTS / MISSING}
-    test-engineer:     {EXISTS / MISSING}
-    wiki-updater:      {EXISTS / MISSING}
-    security-auditor:  {EXISTS / MISSING}
-    knowledge-agent:   {EXISTS / MISSING}
-    ui-ux-engineer:    {EXISTS / MISSING}
+  Agents (7 total — 6 always-on + 1 on-demand):
+    code-reviewer.md:      {EXISTS / MISSING}
+    test-engineer.md:      {EXISTS / MISSING}
+    wiki-updater.md:       {EXISTS / MISSING}
+    security-auditor.md:   {EXISTS / MISSING}
+    knowledge-agent.md:    {EXISTS / MISSING}
+    compliance-officer.md: {EXISTS / MISSING}  (production)
+    ui-ux-engineer.md:     {EXISTS / MISSING}  (on-demand)
 ```
 
 ## Step 4 — Check Rules
 
 ```
-  Rules:
-    security.md:         {EXISTS / MISSING}
-    capability-gaps.md:  {EXISTS / MISSING}
-    skill-evolution.md:  {EXISTS / MISSING}
-    config-protection.md:{EXISTS / MISSING}
-    fact-forcing.md:     {EXISTS / MISSING}
+  Rules (10 total):
+    security.md:          {EXISTS / MISSING}
+    capability-gaps.md:   {EXISTS / MISSING}
+    skill-evolution.md:   {EXISTS / MISSING}
+    config-protection.md: {EXISTS / MISSING}
+    fact-forcing.md:      {EXISTS / MISSING}
+    pii-handling.md:      {EXISTS / MISSING}
+    change-management.md: {EXISTS / MISSING}
+    secrets-management.md:{EXISTS / MISSING}
+    audit-everything.md:  {EXISTS / MISSING}
+    safety-modes.md:      {EXISTS / MISSING}
 ```
 
 ## Step 5 — Check Hook Scripts
 
 ```
-  Hooks:
+  Hooks (12 scripts):
     verify-before-stop.sh:  {EXISTS / MISSING}
     session-monitor.sh:     {EXISTS / MISSING}
     session-summary.sh:     {EXISTS / MISSING}
     session-start.sh:       {EXISTS / MISSING}
     loop-detector.sh:       {EXISTS / MISSING}
     bash-guard.sh:          {EXISTS / MISSING}
-    bash-watchdog.sh:       {EXISTS / MISSING}
     session-logger.sh:      {EXISTS / MISSING}
     statusline.sh:          {EXISTS / MISSING}
     progress-monitor.sh:    {EXISTS / MISSING}
@@ -121,16 +136,38 @@ Verify each skill folder has a SKILL.md:
 If the current directory has been initialized with /init-project:
 
 ```
-  Project files:
-    CLAUDE.md:                {EXISTS / MISSING}
+  Project files (base):
+    CLAUDE.md:                   {EXISTS / MISSING}
+    TEAM.md:                     {EXISTS / MISSING}
+    .claude/agents/:             {EXISTS / MISSING}
     .claude/rules/debugging.md:  {EXISTS / MISSING}
     .claude/rules/testing.md:    {EXISTS / MISSING}
     .claude/skills/learned/:     {EXISTS / MISSING}
+    .claude/state/mode.json:     {OPTIONAL — present only if mode != normal}
     wiki/:                       {EXISTS / MISSING}
     wiki/memory.md:              {EXISTS / MISSING}
     wiki/architecture.md:        {EXISTS / MISSING}
     wiki/logs/:                  {EXISTS / MISSING}
+    wiki/features/:              {EXISTS / MISSING}  (lifecycle tracking)
     .gitignore:                  {EXISTS / MISSING}
+```
+
+If production scope is enabled (read from CLAUDE.md or /init-project output):
+
+```
+  Production-scope files:
+    .claude/agents/compliance-officer.md:    {EXISTS / MISSING}
+    wiki/compliance/:                        {EXISTS / MISSING}
+    wiki/compliance/gaps.md:                 {EXISTS / MISSING}
+    wiki/compliance/data-inventory.md:       {EXISTS / MISSING}
+    wiki/compliance/vendor-register.md:      {EXISTS / MISSING}
+    wiki/compliance/evidence-index.md:       {EXISTS / MISSING}
+    wiki/compliance/policies/:               {EXISTS — 10 policies / MISSING}
+    wiki/legal/:                             {EXISTS / MISSING}
+    wiki/operations/:                        {EXISTS / MISSING}
+    .env.development.example:                {EXISTS / MISSING}
+    .env.staging.example:                    {EXISTS / MISSING}
+    .env.production.example:                 {EXISTS / MISSING}
 ```
 
 ## Step 7 — Check Tool Dependencies

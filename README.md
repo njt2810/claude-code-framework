@@ -14,14 +14,15 @@ The framework installs globally at `~/.claude/` and activates in every Claude Co
 
 ### 1. The Team System
 
-Claude operates as a **Lead Engineer** with five always-on specialist subagents plus one on-demand:
+Claude operates as a **Lead Engineer** with six always-on specialist subagents plus one on-demand:
 
 | Agent | Role | When Active |
 |-------|------|-------------|
-| **Code Reviewer** | Quality gate + deployment safety | After code changes, before merging |
+| **Code Reviewer** | Two-stage review (spec compliance → code quality) | After code changes, before merging |
 | **Test Engineer** | QA + failure readiness | After implementation, for test design |
 | **Wiki Updater** | Docs + operational docs | After decisions, major changes |
 | **Security Auditor** | Security + supply chain | When code touches auth/payments/data |
+| **Compliance Officer** | PDPA + SOC 2 — controls, vendor risk, legal docs | Production streams + PII / auth / payment code |
 | **Knowledge Agent** | Project second brain | Memory bootstrap, gap detection |
 | **UI/UX Engineer** | Design quality (on-demand) | Only when explicitly requested |
 
@@ -29,7 +30,7 @@ The Lead Engineer orchestrates — it builds features, debugs problems, and make
 
 The team identity persists through compactions and long sessions via six reinforcement layers: CLAUDE.md embedding, SessionStart hook injection, InstructionsLoaded reload, compaction preservation rules, session-monitor backup, and TEAM.md reference.
 
-### 2. The Skills System (22 Slash Commands)
+### 2. The Skills System (50 Slash Commands)
 
 Skills are slash commands that encode workflows. They're not just prompts — they're structured procedures with trigger conditions, step-by-step instructions, known failure modes, and verification checks.
 
@@ -43,22 +44,77 @@ Every skill has four required sections:
 
 | Command | What It Does |
 |---------|-------------|
-| `/init-project [stream]` | Bootstrap a project with wiki, agents, rules, CI templates |
-| `/new-feature` | Structured build → test → review → document cycle |
-| `/bug-fix` | Evidence-based: reproduce → failing test → minimal fix → verify |
-| `/resume` | Restore session state from last `/wrap-up` |
-| `/wrap-up` | Save session state, graduated skills, commit reminders |
+| `/init-project [stream]` | Bootstrap a project (stream-aware production scope) |
+| `/feature [add\|list\|...]` | Lifecycle CRUD — capture features before building |
+| `/new-feature` | Spec → plan → branch → build → test → PR (lifecycle-aware) |
+| `/bug-fix` | Reproduce → failing test → fix → verify → PR |
+| `/pr` | Push branch, pre-PR checks, create PR, delegate review |
+| `/resume` | Restore session, surface lifecycle pipeline + safety mode |
+| `/wrap-up` | Save state + delegate to Wiki/Knowledge + auto-update lifecycle |
+| `/status` | Project snapshot + feature pipeline + compliance summary |
+| `/recommend` | Lead Engineer coaches prioritized next actions |
+
+**Engineering hygiene:**
+
+| Command | What It Does |
+|---------|-------------|
+| `/migration` | Safe DB schema changes — SAFE/RISKY/DESTRUCTIVE classification |
+| `/api-contract` | OpenAPI/GraphQL contract — breaking change detection |
+| `/add-rule` | Add project-scoped rule with glob frontmatter |
+
+**Safety modes (situational risk control):**
+
+| Command | What It Does |
+|---------|-------------|
+| `/careful` | Risky work — auto-delegate reviewers, 1-attempt limit |
+| `/guard` | Critical systems — explicit yes per step, snapshot first |
+| `/freeze` | Read-only on scoped paths — audit/investigate mode |
+| `/unfreeze` | Return to normal mode |
+
+**Production setup (production streams):**
+
+| Command | What It Does |
+|---------|-------------|
+| `/env-setup` | Dev/staging/prod separation + secret manager |
+| `/observability-setup` | Error tracking + logs + metrics + alerts |
+| `/audit-logging-setup` | SOC 2 evidence collection from day 1 |
+| `/auth-setup` | Pick managed auth provider |
+| `/billing-setup` | Pick payment provider (MoR for international) |
+| `/email-setup` | Transactional + marketing email + DNS |
+| `/dr-plan` | Backup strategy + restore drill schedule |
+
+**Operations:**
+
+| Command | What It Does |
+|---------|-------------|
+| `/deploy [env]` | Deploy with all gates (tests/lint/migrations/compliance) |
+| `/release [bump]` | Semver + changelog + tag + GitHub Release |
+| `/feature-flag` | Gradual rollout / kill switch / A/B testing |
+| `/incident` | Production down — structured response |
+| `/triage` | Customer ticket → classify → respond → log |
+| `/onboard-client` | New client provisioning + kickoff + calendar |
+
+**Compliance (production streams):**
+
+| Command | What It Does |
+|---------|-------------|
+| `/compliance-audit` | PDPA + SOC 2 gap analysis |
+| `/compliance-status` | Lightweight compliance dashboard |
+| `/data-inventory` | Map every PII flow |
+| `/legal-docs` | Draft DPA / Privacy Policy / ToS (lawyer review required) |
+| `/vendor-review` | Inbound vendor assessments + outbound questionnaire responses |
 
 **Quality & auditing:**
 
 | Command | What It Does |
 |---------|-------------|
 | `/security-check` | Full security audit via Security Auditor |
-| `/production-audit` | 12-section production readiness assessment (all agents) |
+| `/production-audit` | 12-section production readiness assessment |
 | `/review-ui` | Design quality review via UI/UX Engineer |
-| `/review-drift` | Audit spec vs code alignment |
+| `/review-drift` | Spec vs code alignment audit |
 | `/constitution` | Establish project principles and constraints |
 | `/evaluate-repo [URL]` | Assess any GitHub repository |
+| `/framework-check` | Verify framework installation health |
 
 **Knowledge & documentation:**
 
@@ -67,7 +123,6 @@ Every skill has four required sections:
 | `/knowledge [mode]` | Build and maintain project second brain |
 | `/document-all` | Full documentation sweep |
 | `/learn` | Capture reusable patterns as new skills |
-| `/status` | Quick project health overview |
 
 **Skill library management:**
 
@@ -78,7 +133,8 @@ Every skill has four required sections:
 | `/unlock-skill <name>` | Allow Curator to propose edits |
 | `/pin-skill <name>` | Protect a skill from deletion |
 | `/unpin-skill <name>` | Remove deletion protection |
-| `/framework-check` | Verify framework installation health |
+
+See `CLAUDE.md` "Skill Workflow Guide" for the full when-to-run-what table.
 
 ### 3. The Hooks System (12 Automated Behaviors)
 
@@ -99,7 +155,7 @@ Hooks fire on Claude Code lifecycle events — session start, tool use, compacti
 | **Post-Compact Check** | After compaction | Verifies critical context survived |
 | **Identity Check** | When Claude stops | Semantic check that agent findings are attributed |
 
-### 4. The Rules System (5 Always-Loaded Rules)
+### 4. The Rules System (10 Always-Loaded Rules)
 
 Rules are loaded into every session and override default Claude behavior. They enforce invariants that should never be violated.
 
@@ -107,9 +163,14 @@ Rules are loaded into every session and override default Claude behavior. They e
 |------|-----------------|
 | **Security** | Never write secrets in code, never commit .env files, always validate input |
 | **Capability Gaps** | Stop and ask before improvising when a tool is missing |
-| **Skill Evolution** | Never modify framework files without explicit human approval |
+| **Skill Evolution** | Never modify framework files without explicit human approval (3-use graduation criterion for learned skills) |
 | **Config Protection** | Never weaken linter/formatter config to make checks pass |
 | **Fact-Forcing** | Investigate before editing unfamiliar files — no assumption-based edits |
+| **PII Handling** | Never log PII; encrypt at rest; honor retention; never URL-param PII |
+| **Change Management** | Production streams: no direct commits to main, PR workflow required |
+| **Secrets Management** | Secret manager for production, rotation discipline, no shared secrets cross-env |
+| **Audit Everything** | Production streams: state changes must be auditable |
+| **Safety Modes** | Honor `/careful`, `/guard`, `/freeze` state in `.claude/state/mode.json` |
 
 ## The Learning System
 
@@ -156,28 +217,40 @@ Key constraints:
 
 ```
 ~/.claude/
-├── CLAUDE.md              ← Global rules (loaded every session)
+├── CLAUDE.md              ← Global rules + Skill Workflow Guide
 ├── TEAM.md                ← Team structure, delegation rules, identity
 ├── settings.json          ← Hook configuration (12 hooks)
-├── skills/                ← 22 slash commands
+├── skills/                ← 50 slash commands
 │   ├── init-project/         Each skill is a SKILL.md with frontmatter
 │   ├── new-feature/          (trigger conditions, locking, hooks)
 │   ├── bug-fix/              and four required sections
-│   ├── curate/               (When to Use, Procedure, Pitfalls, Verification)
-│   └── ... (22 total)
-├── agents/                ← 6 specialist subagent definitions
-│   ├── code-reviewer.md
+│   ├── pr/                   (When to Use, Procedure, Pitfalls, Verification)
+│   ├── feature/              Lifecycle CRUD
+│   ├── recommend/            Lead Engineer coaching
+│   ├── careful/  guard/  freeze/  unfreeze/   Safety modes
+│   ├── compliance-audit/  data-inventory/  legal-docs/   Compliance pack
+│   ├── deploy/  release/  incident/  dr-plan/            Operations
+│   ├── auth-setup/  billing-setup/  email-setup/         Business
+│   └── ... (50 total)
+├── agents/                ← 7 specialist subagent definitions
+│   ├── code-reviewer.md      (two-stage review)
 │   ├── test-engineer.md
 │   ├── wiki-updater.md
 │   ├── security-auditor.md
+│   ├── compliance-officer.md (production streams)
 │   ├── knowledge-agent.md
-│   └── ui-ux-engineer.md
-├── rules/                 ← 5 always-loaded behavioral rules
+│   └── ui-ux-engineer.md     (on-demand)
+├── rules/                 ← 10 always-loaded behavioral rules
 │   ├── security.md
 │   ├── capability-gaps.md
 │   ├── skill-evolution.md
 │   ├── config-protection.md
-│   └── fact-forcing.md
+│   ├── fact-forcing.md
+│   ├── pii-handling.md
+│   ├── change-management.md
+│   ├── secrets-management.md
+│   ├── audit-everything.md
+│   └── safety-modes.md
 ├── hooks/scripts/         ← 12 hook scripts (bash)
 │   ├── session-start.sh
 │   ├── bash-guard.sh
@@ -191,9 +264,34 @@ Key constraints:
 │   ├── SKILL-template.md    Standard 4-section skill template
 │   ├── wiki/                Wiki page templates
 │   ├── rules/               Scoped rule templates
-│   └── ci/                  CI/CD pipeline templates
+│   ├── ci/                  CI/CD pipeline templates
+│   ├── legal/               DPA, Privacy, ToS, Cookie (lawyer review)
+│   ├── security-policies/   10 SOC 2 security policies
+│   ├── compliance/          SOC 2 controls matrix, risk register, assets
+│   ├── operations/          Deploy + rollback runbooks
+│   └── vendor/              Security questionnaire template
 └── scripts/               ← Utility scripts
     └── timed-run.sh
+
+When a project is initialized with /init-project, it ALSO creates:
+{project}/
+├── .claude/
+│   ├── agents/             ← Project-local copies of agents
+│   ├── rules/              ← Project-scoped rules (with glob frontmatter)
+│   ├── skills/learned/     ← Skills captured via /learn
+│   └── state/mode.json     ← Safety mode state (careful/guard/freeze)
+├── wiki/
+│   ├── features/           ← Lifecycle tracking (BMAD-style)
+│   │   ├── feat-001-*.md
+│   │   └── _export.json    ← Dashboard export
+│   ├── decisions/          ← ADRs
+│   ├── logs/               ← Session logs
+│   ├── compliance/         ← (production) gaps, data inventory, evidence
+│   ├── legal/              ← (production) DPA, Privacy, ToS drafts
+│   ├── operations/         ← (production) deploy runbook, calendar
+│   ├── clients/            ← (production) per-client profiles
+│   └── ...
+└── ...
 ```
 
 **How data flows:**

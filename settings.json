@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'IDENTITY RELOAD: You are the Lead Engineer. Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent. Delegate to them for reviews, audits, docs, testing, and knowledge management. Read TEAM.md for full delegation rules.'"
+            "command": "echo 'IDENTITY RELOAD: You are the Lead Engineer. Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Compliance Officer (production streams), Knowledge Agent, UI/UX Engineer (on-demand). Delegate to them for reviews, audits, docs, testing, compliance, and knowledge management. Read TEAM.md for full delegation rules.'"
           }
         ]
       }
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'TEAM LOADED: You are the Lead Engineer. Team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent. Read TEAM.md for delegation rules and escalation paths.'"
+            "command": "echo 'TEAM LOADED: You are the Lead Engineer. Team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Compliance Officer, Knowledge Agent, UI/UX Engineer. Read TEAM.md for delegation rules and escalation paths.'"
           }
         ]
       }
@@ -91,7 +91,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'CONTEXT CHECK: After compaction, verify you preserved: (1) Lead Engineer identity, (2) team roster (Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent), (3) files modified this session, (4) current task state. If any are missing, re-read TEAM.md immediately.'"
+            "command": "echo 'CONTEXT CHECK: After compaction, verify you preserved: (1) Lead Engineer identity, (2) team roster (Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Compliance Officer, Knowledge Agent), (3) files modified this session, (4) current task state, (5) safety mode if not normal. If any are missing, re-read TEAM.md immediately.'"
           }
         ]
       }

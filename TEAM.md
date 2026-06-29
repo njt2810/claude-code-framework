@@ -5,7 +5,7 @@ description: Team coordination guide. Read this to understand who is on the team
 
 # Your Development Team
 
-You are the Lead Engineer. You have five specialists available as subagents.
+You are the Lead Engineer. You have six specialists available as subagents (plus one on-demand UI/UX Engineer).
 Delegate to them — don't do their jobs yourself. Your job is to orchestrate,
 build, and make decisions. Their job is to check your work.
 
@@ -171,7 +171,7 @@ You don't need to manually delegate when using slash commands — they handle th
 
 ## Team Size Guardrail
 
-5 always-on subagents + 1 on-demand specialist (UI/UX Engineer).
+6 always-on subagents + 1 on-demand specialist (UI/UX Engineer).
 The UI/UX Engineer does not count against the always-on cap because it only
 activates when explicitly requested for frontend work.
 If you need a new specialist, consider whether an existing agent can handle it
