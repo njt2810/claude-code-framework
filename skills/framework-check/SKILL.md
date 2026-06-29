@@ -40,7 +40,7 @@ Checking global framework files...
 
 Verify each skill folder has a SKILL.md:
 
-Check that all 50 skill folders contain a SKILL.md. Use a glob over
+Check that all 51 skill folders contain a SKILL.md. Use a glob over
 `~/.claude/skills/*/SKILL.md` and verify the expected set:
 
 Core:
@@ -65,7 +65,7 @@ Production setup:
   billing-setup, email-setup, dr-plan
 
 Operations:
-  deploy, release, feature-flag, incident, triage
+  deploy, release, feature-flag, incident, triage, timer
 
 Compliance (production streams):
   compliance-audit, compliance-status, data-inventory,

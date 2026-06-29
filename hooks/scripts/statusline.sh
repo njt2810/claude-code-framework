@@ -1,60 +1,156 @@
 #!/bin/bash
-# StatusLine — live project monitoring at the bottom of Claude Code
+# StatusLine v2 — plain English status for operators
+# Receives Claude Code JSON on stdin (model, cost, session duration).
+# Multi-line output; only shows what's actionable. Empty lines are suppressed.
 
-# Project info
-PROJECT=$(basename "$(pwd)" 2>/dev/null || echo "unknown")
-STREAM="unknown"
-if [ -f ".claude/stream" ]; then
-  STREAM=$(cat .claude/stream 2>/dev/null)
-elif [ -f "CLAUDE.md" ]; then
-  STREAM=$(grep "Stream:" CLAUDE.md 2>/dev/null | head -1 | awk '{print $NF}')
-fi
+INPUT=$(cat 2>/dev/null)
 
-# Git status
-BRANCH=$(git branch --show-current 2>/dev/null || echo "no-git")
-CHANGES=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ' 2>/dev/null || echo "0")
-LAST_COMMIT=$(git log -1 --format='%cr' 2>/dev/null || echo "never")
+# === Stdin: cost + session duration ===
+SESSION_COST=$(echo "$INPUT" | jq -r '.cost.total_cost_usd // 0' 2>/dev/null || echo "0")
+SESSION_DURATION_MS=$(echo "$INPUT" | jq -r '.cost.total_duration_ms // 0' 2>/dev/null || echo "0")
+COST_FMT=$(printf "\$%.2f" "$SESSION_COST" 2>/dev/null || echo "\$0.00")
 
-# Session health (from session monitor counter)
-COUNTER_FILE="${TEMP:-/tmp}/claude-session-monitor-$$"
-TURNS=$(cat "$COUNTER_FILE" 2>/dev/null || echo "0")
-
-if [ "$TURNS" -gt 30 ]; then
-  CTX="heavy"
-elif [ "$TURNS" -gt 15 ]; then
-  CTX="moderate"
+SESSION_MIN=$((SESSION_DURATION_MS / 60000))
+if [ "$SESSION_MIN" -ge 60 ]; then
+  SESSION_FMT="$((SESSION_MIN/60))h $((SESSION_MIN%60))m"
+elif [ "$SESSION_MIN" -gt 0 ]; then
+  SESSION_FMT="${SESSION_MIN}m"
 else
-  CTX="fresh"
+  SESSION_FMT=""
 fi
 
-# Learned skills count — without find (use ls)
-LEARNED=0
-if [ -d ".claude/skills/learned" ]; then
-  LEARNED=$(ls .claude/skills/learned/*/SKILL.md 2>/dev/null | wc -l | tr -d ' ' 2>/dev/null || echo "0")
+# === Project + stream ===
+PROJECT=$(basename "$(pwd)" 2>/dev/null || echo "unknown")
+STREAM=""
+if [ -f ".claude/stream" ]; then
+  STREAM=$(cat .claude/stream 2>/dev/null | tr -d '[:space:]')
+elif [ -f "CLAUDE.md" ]; then
+  STREAM=$(grep -i "^stream:" CLAUDE.md 2>/dev/null | head -1 | awk -F: '{print $2}' | tr -d '[:space:]')
 fi
 
-# Loop incidents (from loop detector log)
-EDIT_LOG="${TEMP:-/tmp}/claude-edit-tracker-$$"
-LOOP_COUNT=0
-if [ -f "$EDIT_LOG" ]; then
-  LOOP_COUNT=$(sort "$EDIT_LOG" 2>/dev/null | uniq -c | awk '$1 >= 3 {count++} END {print count+0}' 2>/dev/null || echo "0")
+case "$STREAM" in
+  org1|org2)   STREAM_LABEL="production project ($STREAM)"; IS_PRODUCTION=1 ;;
+  personal)    STREAM_LABEL="personal project"; IS_PRODUCTION=0 ;;
+  learning)    STREAM_LABEL="learning project"; IS_PRODUCTION=0 ;;
+  *)           STREAM_LABEL=""; IS_PRODUCTION=0 ;;
+esac
+
+# === Safety mode ===
+MODE=""
+if [ -f ".claude/state/mode.json" ]; then
+  MODE_VAL=$(jq -r '.mode // "normal"' .claude/state/mode.json 2>/dev/null)
+  if [ -n "$MODE_VAL" ] && [ "$MODE_VAL" != "normal" ]; then
+    MODE=$(echo "$MODE_VAL" | tr '[:lower:]' '[:upper:]')
+  fi
 fi
 
-# Build the status line
-STATUS="${PROJECT}"
+# === Active timer ===
+TIMER_LINE=""
+if [ -f ".claude/state/timer.json" ]; then
+  T_ACTIVE=$(jq -r '.active // false' .claude/state/timer.json 2>/dev/null)
+  if [ "$T_ACTIVE" = "true" ]; then
+    T_CLIENT=$(jq -r '.client // "?"' .claude/state/timer.json 2>/dev/null)
+    T_NOTE=$(jq -r '.note // ""' .claude/state/timer.json 2>/dev/null)
+    T_MODE=$(jq -r '.mode // "running"' .claude/state/timer.json 2>/dev/null)
+    T_STARTED=$(jq -r '.started_at // ""' .claude/state/timer.json 2>/dev/null)
+    T_ACC=$(jq -r '.accumulated_seconds // 0' .claude/state/timer.json 2>/dev/null)
 
-if [ "$STREAM" != "unknown" ]; then
-  STATUS="${STATUS} (${STREAM})"
+    if [ "$T_MODE" = "running" ] && [ -n "$T_STARTED" ]; then
+      T_START_EPOCH=$(date -d "$T_STARTED" +%s 2>/dev/null || echo "0")
+      T_ELAPSED=$(( $(date +%s) - T_START_EPOCH + T_ACC ))
+    else
+      T_ELAPSED=$T_ACC
+    fi
+
+    T_MIN=$((T_ELAPSED / 60))
+    if [ "$T_MIN" -ge 60 ]; then
+      T_FMT="$((T_MIN/60))h $((T_MIN%60))m"
+    else
+      T_FMT="${T_MIN}m"
+    fi
+
+    T_PREFIX="⏱"
+    [ "$T_MODE" = "paused" ] && T_PREFIX="⏸"
+    TIMER_LINE="${T_PREFIX} ${T_CLIENT} · \"${T_NOTE}\" · ${T_FMT}"
+  fi
 fi
 
-STATUS="${STATUS} | ${BRANCH} +${CHANGES}"
-STATUS="${STATUS} | ctx:${CTX}"
-STATUS="${STATUS} | ${LEARNED} skills"
-
-if [ "$LOOP_COUNT" -gt 0 ]; then
-  STATUS="${STATUS} | ${LOOP_COUNT} loops"
+# === Git state ===
+GIT_STATE=""
+BRANCH=$(git branch --show-current 2>/dev/null)
+if [ -n "$BRANCH" ]; then
+  DIRTY=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$DIRTY" = "0" ]; then
+    GIT_STATE="${BRANCH} · clean"
+  elif [ "$DIRTY" = "1" ]; then
+    GIT_STATE="${BRANCH} · 1 unsaved change"
+  else
+    GIT_STATE="${BRANCH} · ${DIRTY} unsaved changes"
+  fi
 fi
 
-STATUS="${STATUS} | ${LAST_COMMIT}"
+# === PR state (cached 60s, only if gh installed and not on default branch) ===
+PR_STATE=""
+if command -v gh >/dev/null 2>&1 && [ -n "$BRANCH" ] && [ "$BRANCH" != "main" ] && [ "$BRANCH" != "master" ]; then
+  PR_CACHE="${TEMP:-/tmp}/claude-pr-${BRANCH//\//_}"
+  CACHE_AGE=999
+  if [ -f "$PR_CACHE" ]; then
+    CACHE_AGE=$(( $(date +%s) - $(stat -c %Y "$PR_CACHE" 2>/dev/null || echo 0) ))
+  fi
+  if [ "$CACHE_AGE" -lt 60 ]; then
+    PR_STATE=$(cat "$PR_CACHE" 2>/dev/null)
+  else
+    PR_JSON=$(gh pr view --json number,state,statusCheckRollup 2>/dev/null)
+    if [ -n "$PR_JSON" ]; then
+      PR_NUM=$(echo "$PR_JSON" | jq -r '.number')
+      PR_CHECKS=$(echo "$PR_JSON" | jq -r '[.statusCheckRollup[]?.conclusion] | if any(. == "FAILURE") then "failing CI" elif any(. == "PENDING") then "CI running" else "passing" end' 2>/dev/null || echo "open")
+      PR_STATE="PR #${PR_NUM} ${PR_CHECKS}"
+    fi
+    echo "$PR_STATE" > "$PR_CACHE" 2>/dev/null
+  fi
+fi
 
-echo "$STATUS"
+# === Lifecycle pipeline (production only) ===
+PIPELINE=""
+if [ "$IS_PRODUCTION" = "1" ] && [ -d "wiki/features" ]; then
+  IN_PROGRESS=$(grep -l "^status: in-progress" wiki/features/*.md 2>/dev/null | wc -l | tr -d ' ')
+  IN_REVIEW=$(grep -l "^status: review" wiki/features/*.md 2>/dev/null | wc -l | tr -d ' ')
+  [ "$IN_PROGRESS" -gt 0 ] && PIPELINE="${IN_PROGRESS} in progress"
+  if [ "$IN_REVIEW" -gt 0 ]; then
+    [ -n "$PIPELINE" ] && PIPELINE="${PIPELINE}, "
+    PIPELINE="${PIPELINE}${IN_REVIEW} waiting for review"
+  fi
+fi
+
+# === Compliance gaps (production only) ===
+GAPS=""
+if [ "$IS_PRODUCTION" = "1" ] && [ -f "wiki/compliance/gaps.md" ]; then
+  GAP_COUNT=$(grep -c "^- \[ \]" wiki/compliance/gaps.md 2>/dev/null || echo "0")
+  if [ "$GAP_COUNT" = "1" ]; then
+    GAPS="⚠ 1 compliance item to fix"
+  elif [ "$GAP_COUNT" -gt 0 ]; then
+    GAPS="⚠ ${GAP_COUNT} compliance items to fix"
+  fi
+fi
+
+# === Compose output ===
+LINE1="$PROJECT"
+[ -n "$STREAM_LABEL" ] && LINE1="${LINE1}  ·  ${STREAM_LABEL}"
+[ -n "$MODE" ] && LINE1="${LINE1}  ·  ⚠ ${MODE} MODE ON"
+[ -n "$GAPS" ] && LINE1="${LINE1}  ·  ${GAPS}"
+
+LINE2=""
+[ -n "$GIT_STATE" ] && LINE2="$GIT_STATE"
+[ -n "$PR_STATE" ] && LINE2="${LINE2:+${LINE2}  ·  }${PR_STATE}"
+[ -n "$TIMER_LINE" ] && LINE2="${LINE2:+${LINE2}  ·  }${TIMER_LINE}"
+
+LINE3=""
+[ -n "$PIPELINE" ] && LINE3="$PIPELINE"
+[ -n "$SESSION_FMT" ] && LINE3="${LINE3:+${LINE3}  ·  }Session: ${SESSION_FMT}"
+if [ -n "$COST_FMT" ] && [ "$COST_FMT" != "\$0.00" ]; then
+  LINE3="${LINE3:+${LINE3}  ·  }${COST_FMT}"
+fi
+
+echo "$LINE1"
+[ -n "$LINE2" ] && echo "$LINE2"
+[ -n "$LINE3" ] && echo "$LINE3"

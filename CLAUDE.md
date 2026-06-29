@@ -96,6 +96,9 @@ Read this carefully. When the user is unsure what to do, this table answers it.
 |------|-----|-----|
 | Production breaks | `/incident` | Structured response: stabilize → comms → investigate → fix → postmortem |
 | Customer reports an issue | `/triage` | Classify, score, respond within SLA, log to backlog |
+| Starting billable client work | `/timer start` | Logs hours + git evidence to `wiki/clients/{client}/time-log.md` |
+| Done with billable client work | `/timer stop` | Captures duration, files touched, commits — for client invoicing |
+| Need to send a client a time report | `/timer report --client X --month YYYY-MM` | Generates a markdown report you can forward |
 | Quarterly | `/compliance-audit` | Re-check gaps, update evidence |
 | Quarterly | DR restore drill (per `/dr-plan`) | Verify backups actually work |
 | Monthly | `/curate` | Skill library health: stale, low-usage, duplicates |
@@ -127,6 +130,8 @@ Read this carefully. When the user is unsure what to do, this table answers it.
 **"I'm about to rotate keys / change IAM"** → `/guard` first
 **"I need to onboard a client"** → `/onboard-client`
 **"Client sent us a security questionnaire"** → `/vendor-review` (outbound mode)
+**"I'm starting billable client work"** → `/timer start`, then work normally
+**"I'm done — log the time"** → `/timer stop`
 
 ### Anti-Patterns To Avoid
 
@@ -138,6 +143,8 @@ Read this carefully. When the user is unsure what to do, this table answers it.
 - ❌ Production stream without `/audit-logging-setup` before first deploy → can't retroactively capture evidence
 - ❌ Skipping `/wrap-up` at session end → next session has no continuity, lifecycle stale
 - ❌ Running `/careful` and forgetting to `/unfreeze` → friction bleeds into routine work
+- ❌ Starting `/timer` for internal product work → that's not billable, use `/feature` instead
+- ❌ Forgetting `/timer stop` before `/clear` → keeps counting, you may bill for time you didn't work
 
 ## Framework
 This project uses a development framework with skills, agents, rules, and hooks.

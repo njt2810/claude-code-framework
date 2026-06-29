@@ -64,6 +64,18 @@ Generate slug: kebab-case of client name.
 
 ## Step 2 — Create Client Record
 
+Also create `wiki/clients/{slug}/time-log.md` (empty placeholder, used by /timer):
+
+```markdown
+# Time Log — {client legal name}
+
+This is an append-only log of billable client work for this client.
+Entries are written by `/timer stop`. Do not edit by hand unless correcting
+an error — keep the audit trail intact.
+
+(no entries yet)
+```
+
 Create `wiki/clients/{slug}/profile.md`:
 
 ```markdown
@@ -213,6 +225,7 @@ Update `wiki/clients/_index.md` (create if missing):
 Client Onboarding — {client name}
 
   Profile created: wiki/clients/{slug}/profile.md
+  Time log:        wiki/clients/{slug}/time-log.md (ready for /timer)
   Roster updated:  wiki/clients/_index.md
   Calendar items:  {N} scheduled
 

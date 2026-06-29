@@ -46,7 +46,11 @@ Run these checks IN PARALLEL and report a single summary:
    - Read `.claude/state/mode.json`
    - If mode != "normal": flag and suggest /unfreeze before ending session
 
-5. **Feature lifecycle reconciliation**
+5. **Active timer check**
+   - Read `.claude/state/timer.json`
+   - If active=true: flag for Step 1b handling (do not silently end the session)
+
+6. **Feature lifecycle reconciliation**
    - Read all files in `wiki/features/`
    - For each feature in `in-progress`: check if a branch named `feature/{slug}` or `fix/{slug}` exists
    - For each feature in `review`: check PR state via `gh pr view {pr_number} --json state`
@@ -64,8 +68,26 @@ DIAGNOSTICS:
   Tests:         {pass}/{total} passing
   Stream:        {name}
   Safety mode:   {mode}
+  Active timer:  {client · note · duration, or "none"}
   Lifecycle:     {N} auto-transitions ({list})
 ```
+
+## Step 1b — Active Timer Check
+
+If `.claude/state/timer.json` is active (from Step 1):
+
+1. Show the running timer: client, note, elapsed time.
+2. Ask: "Timer is still running. What do you want to do?
+   1. **Stop it** — log the time to {client}'s log (you're done with this work)
+   2. **Pause it** — save state and resume next session
+   3. **Leave it running** — keep counting across the gap (risky: you might bill for time you didn't work)"
+3. Execute the chosen option by invoking the matching `/timer` subcommand:
+   - Stop → `/timer stop` (will prompt for final note)
+   - Pause → `/timer pause`
+   - Leave → no-op, but warn: "Timer will keep counting until you /timer stop next session."
+4. Continue with Step 2.
+
+If no timer is active, skip this step.
 
 ## Step 2 — Handle Uncommitted Work
 
@@ -261,6 +283,7 @@ If on main with production stream: STOP — this should have been on a branch.
   Knowledge updates: {N} entries (from Knowledge Agent)
   Cost log:          updated (or "n/a for this stream")
   Production checks: {pass/N gaps found} (or "n/a")
+  Timer:             {stopped/paused/left running/n/a} (client + duration if applicable)
   Lifecycle:         {N} auto-transitions ({list})
   Feature export:    wiki/features/_export.json refreshed
 

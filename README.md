@@ -30,7 +30,7 @@ The Lead Engineer orchestrates — it builds features, debugs problems, and make
 
 The team identity persists through compactions and long sessions via six reinforcement layers: CLAUDE.md embedding, SessionStart hook injection, InstructionsLoaded reload, compaction preservation rules, session-monitor backup, and TEAM.md reference.
 
-### 2. The Skills System (50 Slash Commands)
+### 2. The Skills System (51 Slash Commands)
 
 Skills are slash commands that encode workflows. They're not just prompts — they're structured procedures with trigger conditions, step-by-step instructions, known failure modes, and verification checks.
 
@@ -93,6 +93,7 @@ Every skill has four required sections:
 | `/incident` | Production down — structured response |
 | `/triage` | Customer ticket → classify → respond → log |
 | `/onboard-client` | New client provisioning + kickoff + calendar |
+| `/timer [start\|stop\|status\|...]` | Track billable hours per client with auto-captured git evidence |
 
 **Compliance (production streams):**
 
@@ -220,7 +221,7 @@ Key constraints:
 ├── CLAUDE.md              ← Global rules + Skill Workflow Guide
 ├── TEAM.md                ← Team structure, delegation rules, identity
 ├── settings.json          ← Hook configuration (12 hooks)
-├── skills/                ← 50 slash commands
+├── skills/                ← 51 slash commands
 │   ├── init-project/         Each skill is a SKILL.md with frontmatter
 │   ├── new-feature/          (trigger conditions, locking, hooks)
 │   ├── bug-fix/              and four required sections
@@ -231,7 +232,7 @@ Key constraints:
 │   ├── compliance-audit/  data-inventory/  legal-docs/   Compliance pack
 │   ├── deploy/  release/  incident/  dr-plan/            Operations
 │   ├── auth-setup/  billing-setup/  email-setup/         Business
-│   └── ... (50 total)
+│   └── ... (51 total)
 ├── agents/                ← 7 specialist subagent definitions
 │   ├── code-reviewer.md      (two-stage review)
 │   ├── test-engineer.md

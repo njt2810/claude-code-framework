@@ -67,6 +67,18 @@ Read `.claude/state/mode.json`:
 - If mode != "normal": flag prominently in resume summary
 - Explain the constraint and remind user to /unfreeze when done
 
+## Step 6b — Check Active Timer
+
+Read `.claude/state/timer.json`:
+- If active=true and mode=running: flag this prominently — the previous session
+  left a timer running, the user has likely been billing time they weren't working.
+  Ask: "A timer was left running for {client}: '{note}'. Should I stop it
+  now (estimate stop time = end of last session), or keep it as-is so you can
+  edit the log manually?"
+- If active=true and mode=paused: announce in the resume summary that there's a
+  paused timer, ask if they want to resume it.
+- If no timer state: skip.
+
 ## Step 7 — Present Resume Summary
 
 Before presenting, re-read TEAM.md to reinforce the team structure.
@@ -98,6 +110,14 @@ Current state:
 (If safety mode active)
   ⚠ {Mode} mode is active. Reason: {captured reason}.
     Run /unfreeze when done.
+
+(If a timer is left running)
+  ⚠ Timer left running for {client}: "{note}" — accumulated {duration}.
+    Last session ended {ago}. Stop it now, or keep as-is?
+
+(If a paused timer exists)
+  ⏸ Paused timer: {client} · "{note}" · {duration} so far.
+    Run /timer resume to continue billing this work.
 
 Learned skills available: {count}
   {List skill names if any}

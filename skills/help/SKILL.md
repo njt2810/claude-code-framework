@@ -23,7 +23,7 @@ instead — it scans project state and prioritizes.
 Display this reference to the user:
 
 ```
-YOUR COMMAND REFERENCE — 50 skills, 6 always-on + 1 on-demand agents
+YOUR COMMAND REFERENCE — 51 skills, 6 always-on + 1 on-demand agents
 
 STARTING & RESUMING
   /init-project [stream]  Bootstrap a new or existing project
@@ -72,6 +72,8 @@ OPERATIONS
   /incident               Production down — structured response
   /triage                 Customer ticket > classify > respond > log
   /onboard-client         New client provisioning + kickoff + calendar
+  /timer [start|stop|...] Track billable hours per client with auto-captured
+                          git evidence — for client work only, not internal
 
 COMPLIANCE (production streams)
   /compliance-audit       PDPA + SOC 2 gap analysis
@@ -156,6 +158,8 @@ QUICK DECISION TREE
   About to rotate keys / IAM?    → /guard first
   Need to onboard a client?      → /onboard-client
   Client sent us a questionnaire?→ /vendor-review (outbound)
+  Starting client billable work? → /timer start (then work normally)
+  Finished client billable work? → /timer stop (logs evidence + duration)
 
 See CLAUDE.md "Skill Workflow Guide" for the full when-to-run-what table
 organized by project phase.
@@ -169,7 +173,7 @@ organized by project phase.
 
 ## Verification
 
-- All 50 installed skills are listed
+- All 51 installed skills are listed
 - Each section grouping is logical
 - Quick decision tree at the bottom resolves common questions
 - Skills the user might not know about are surfaced
