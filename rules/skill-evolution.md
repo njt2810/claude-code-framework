@@ -24,8 +24,40 @@ For DOWNLOADING tools or packages:
 3. Wait for approval
 
 For GRADUATING learned skills (learned → permanent):
-1. Say: "The {name} skill has been verified {N} times.
-   Promote to permanent skill?"
-2. Wait for approval
+
+**Concrete promotion criterion: 3 successful uses.**
+
+A "successful use" means:
+1. The skill was invoked
+2. It completed without the user having to override or correct its procedure
+3. The user did not propose changes to the skill afterward
+4. The verification section's checks all passed
+
+Track successful uses in the skill's frontmatter:
+
+```yaml
+---
+name: learned-skill-foo
+verified_on:
+  - 2026-06-29
+  - 2026-07-05
+  - 2026-07-12
+---
+```
+
+When `verified_on` has 3+ entries, the skill is **eligible for graduation**.
+Eligible ≠ graduated. The user still approves the promotion explicitly:
+
+1. Say: "The {name} skill has been verified {N} times on {dates}.
+   Eligible for promotion to permanent. Promote? (yes/no)"
+2. If yes: move from `.claude/skills/learned/` to `.claude/skills/`
+3. Update TEAM.md to add to "Graduated Skills" section
+4. Wait for approval — promotion is not automatic
+
+Skills that FAIL a use (procedure didn't work, user had to override):
+- Add the failure date and reason to a `failed_on:` frontmatter array
+- Propose a procedure update before next use
+- Do not count toward the 3-use graduation criterion
+- After 3 failures without graduation, retire the skill via /curate
 
 The human is ALWAYS the gatekeeper for changes to the framework.

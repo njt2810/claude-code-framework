@@ -29,11 +29,11 @@ if not exist "%CLAUDE_HOME%\templates\vendor" mkdir "%CLAUDE_HOME%\templates\ven
 echo    Done.
 
 echo [2/9] Installing skills (slash commands)...
-for %%S in (init-project new-feature bug-fix wrap-up resume learn help document-all evaluate-repo status security-check constitution review-drift knowledge production-audit review-ui framework-check curate lock-skill unlock-skill pin-skill unpin-skill pr compliance-audit data-inventory legal-docs audit-logging-setup vendor-review compliance-status env-setup observability-setup deploy dr-plan incident release feature-flag auth-setup billing-setup email-setup triage) do (
+for %%S in (init-project new-feature bug-fix wrap-up resume learn help document-all evaluate-repo status security-check constitution review-drift knowledge production-audit review-ui framework-check curate lock-skill unlock-skill pin-skill unpin-skill pr compliance-audit data-inventory legal-docs audit-logging-setup vendor-review compliance-status env-setup observability-setup deploy dr-plan incident release feature-flag auth-setup billing-setup email-setup triage feature recommend add-rule migration api-contract onboard-client careful guard freeze unfreeze) do (
     if not exist "%CLAUDE_HOME%\skills\%%S" mkdir "%CLAUDE_HOME%\skills\%%S"
     copy /Y "skills\%%S\SKILL.md" "%CLAUDE_HOME%\skills\%%S\SKILL.md" >nul 2>&1
 )
-echo    40 skills installed.
+echo    50 skills installed.
 
 echo [3/9] Installing agents...
 copy /Y "agents\*.md" "%CLAUDE_HOME%\agents\" >nul 2>&1
@@ -41,7 +41,7 @@ echo    7 agents installed (6 always-on + 1 on-demand).
 
 echo [4/9] Installing rules...
 copy /Y "rules\*.md" "%CLAUDE_HOME%\rules\" >nul 2>&1
-echo    9 global rules installed.
+echo    10 global rules installed.
 
 echo [5/9] Installing hooks...
 copy /Y "hooks\scripts\*.sh" "%CLAUDE_HOME%\hooks\scripts\" >nul 2>&1
@@ -123,7 +123,7 @@ if exist "%CLAUDE_HOME%\hooks\scripts\verify-before-stop.sh" (
 )
 
 if exist "%CLAUDE_HOME%\skills\init-project\SKILL.md" (
-    echo    OK: 40 skills
+    echo    OK: 50 skills
 ) else (
     echo    MISSING: skills
     set /a ERRORS+=1
@@ -161,7 +161,7 @@ echo.
 echo   Location: %CLAUDE_HOME%
 echo.
 echo   Installed:
-echo     40 skills   (core)
+echo     50 skills   (core)
 echo                   /init-project /new-feature /bug-fix /pr
 echo                   /wrap-up /resume /learn /help
 echo                   /document-all /evaluate-repo /status
@@ -182,14 +182,20 @@ echo                   /release /feature-flag
 echo                 (SaaS business pack)
 echo                   /auth-setup /billing-setup
 echo                   /email-setup /triage
+echo                 (lifecycle + coaching)
+echo                   /feature /recommend /add-rule
+echo                   /migration /api-contract /onboard-client
+echo                 (safety modes)
+echo                   /careful /guard /freeze /unfreeze
 echo     7 agents    - code-reviewer test-engineer
 echo                   wiki-updater security-auditor
 echo                   knowledge-agent ui-ux-engineer
 echo                   compliance-officer (production)
-echo     9 rules     - security capability-gaps skill-evolution
+echo     10 rules    - security capability-gaps skill-evolution
 echo                   config-protection fact-forcing
 echo                   pii-handling change-management
 echo                   secrets-management audit-everything
+echo                   safety-modes
 echo     12 hooks    - session-start bash-guard pre-compact
 echo                   verify-before-stop session-monitor
 echo                   session-summary loop-detector

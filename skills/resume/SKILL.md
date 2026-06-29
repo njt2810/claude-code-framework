@@ -54,7 +54,20 @@ Pick up exactly where the last session left off.
 1. Scan `.claude/skills/learned/` for any learned skills
 2. Note how many are available and their names
 
-## Step 5 — Present Resume Summary
+## Step 5 — Check Feature Pipeline
+
+Read all files in `wiki/features/` and parse frontmatter:
+- Count items by status
+- Identify any items in `in-progress` state (you were working on these)
+- Identify any items in `review` state (PRs awaiting attention)
+
+## Step 6 — Check Safety Mode
+
+Read `.claude/state/mode.json`:
+- If mode != "normal": flag prominently in resume summary
+- Explain the constraint and remind user to /unfreeze when done
+
+## Step 7 — Present Resume Summary
 
 Before presenting, re-read TEAM.md to reinforce the team structure.
 
@@ -67,20 +80,36 @@ Last session ({date}):
   {2-3 sentence summary of what was accomplished}
 
 Current state:
-  {What works, what's pending, any open items}
+  Branch: {current branch}
+  Uncommitted: {count or 'clean'}
+  Open PRs: {count, URLs if few}
+  Safety mode: {mode} {if not normal: explain}
 
-{If uncommitted changes exist}:
-  {N} uncommitted changes detected from last session.
+📋 Feature Pipeline ({total active})
+  In progress: {N}
+    {item title} ({id})  ← you were working on this
+  Review: {N}
+    {item title} ({id})  PR {URL}
+  Proposed: {N}
+
+(If uncommitted changes exist)
+  ⚠ {N} uncommitted changes from last session.
+
+(If safety mode active)
+  ⚠ {Mode} mode is active. Reason: {captured reason}.
+    Run /unfreeze when done.
 
 Learned skills available: {count}
   {List skill names if any}
 
-{If knowledge gaps found}:
+(If knowledge gaps found)
   Knowledge gaps: {count} unknown terms from last session.
   Run /knowledge gaps to fill them in, or I'll ask as they come up.
 
 Suggested next step:
   "{The specific instruction from the session log's 'Next Session Should Start With' field}"
+
+Want a coached overview? Run /recommend for prioritized next actions.
 
 Ready to continue. What would you like to work on?
 ```

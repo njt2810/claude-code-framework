@@ -42,6 +42,18 @@ Run these checks IN PARALLEL and report a single summary:
    - Read project CLAUDE.md to determine stream (personal/org1/org2/learning)
    - Production streams (org1/org2, or personal-with-production-flag) get additional checks in Step 7
 
+4. **Safety mode check**
+   - Read `.claude/state/mode.json`
+   - If mode != "normal": flag and suggest /unfreeze before ending session
+
+5. **Feature lifecycle reconciliation**
+   - Read all files in `wiki/features/`
+   - For each feature in `in-progress`: check if a branch named `feature/{slug}` or `fix/{slug}` exists
+   - For each feature in `review`: check PR state via `gh pr view {pr_number} --json state`
+     - If state = MERGED: auto-transition to `shipped`, set `shipped_at`
+     - If state = CLOSED (not merged): flag for user decision
+   - Report any auto-transitions made
+
 Report:
 ```
 DIAGNOSTICS:
@@ -51,6 +63,8 @@ DIAGNOSTICS:
   Open PR:       {URL or "none"}
   Tests:         {pass}/{total} passing
   Stream:        {name}
+  Safety mode:   {mode}
+  Lifecycle:     {N} auto-transitions ({list})
 ```
 
 ## Step 2 — Handle Uncommitted Work
@@ -203,6 +217,12 @@ Update `wiki/PROJECT_STATUS.md`:
 - Open PRs: count and URLs
 - Failing tests: count (should be 0)
 - Next milestone: derived from PROJECT_STATUS.md current goals
+- Feature pipeline summary: counts by status (from /feature list)
+
+## Step 10b — Export Feature Pipeline
+
+Run `/feature export` to regenerate `wiki/features/_export.json` for any
+external dashboards consuming the feature lifecycle data.
 
 ## Step 11 — Graphify Update
 
@@ -227,7 +247,7 @@ git commit -m "Session wrap-up — {date}"
 If on a feature/fix branch: push the wrap-up commit to the branch.
 If on main with production stream: STOP — this should have been on a branch.
 
-## Step 13 — Final Report
+## Step 13 — Final Report + Recommendations
 
 ```
 ✓ Wrap-up complete
@@ -241,12 +261,27 @@ If on main with production stream: STOP — this should have been on a branch.
   Knowledge updates: {N} entries (from Knowledge Agent)
   Cost log:          updated (or "n/a for this stream")
   Production checks: {pass/N gaps found} (or "n/a")
+  Lifecycle:         {N} auto-transitions ({list})
+  Feature export:    wiki/features/_export.json refreshed
 
   Next session: /resume to continue where you left off.
 
   ⚠ Open items needing attention:
     {bullets if any — stale PRs, failing tests, compliance gaps}
+
+🎯 Lead Engineer Recommendations for Next Session
+  (run /recommend for full coached overview)
+
+  Top 3:
+    1. {highest priority action with one-line why}
+    2. {next priority}
+    3. {next priority}
+
+  If you only do ONE thing next session: {the single most important action}
 ```
+
+Generate the top 3 by running the same logic /recommend uses but
+condensed: scan blockers first, then high-value items, pick top 3.
 
 ## Pitfalls
 
