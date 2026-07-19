@@ -30,7 +30,7 @@ The Lead Engineer orchestrates — it builds features, debugs problems, and make
 
 The team identity persists through compactions and long sessions via five reinforcement layers: CLAUDE.md embedding, SessionStart hook injection (on startup and after compaction), compaction preservation rules, session-monitor reinforcement, and TEAM.md reference.
 
-### 2. The Skills System (52 Slash Commands)
+### 2. The Skills System (53 Slash Commands)
 
 Skills are slash commands that encode workflows. They're not just prompts — they're structured procedures with trigger conditions, step-by-step instructions, known failure modes, and verification checks.
 
@@ -50,7 +50,8 @@ Every skill has four required sections:
 | `/new-feature` | Spec → plan → branch → build → test → PR (lifecycle-aware) |
 | `/bug-fix` | Reproduce → failing test → fix → verify → PR |
 | `/pr` | Push branch, pre-PR checks, create PR, delegate review |
-| `/resume` | Restore session, surface lifecycle pipeline + safety mode |
+| `/resume` | Restore session, surface unread notes + lifecycle pipeline + safety mode |
+| `/note [text]` | Leave yourself a note — /resume announces unread notes first |
 | `/wrap-up` | Save state + delegate to Wiki/Knowledge + auto-update lifecycle |
 | `/status` | Project snapshot + feature pipeline + compliance summary |
 | `/recommend` | Lead Engineer coaches prioritized next actions |
@@ -222,7 +223,7 @@ Key constraints:
 ├── CLAUDE.md              ← Global rules + Skill Workflow Guide
 ├── TEAM.md                ← Team structure, delegation rules, identity
 ├── settings.json          ← Hook configuration (12 hooks)
-├── skills/                ← 52 slash commands
+├── skills/                ← 53 slash commands
 │   ├── init-project/         Each skill is a SKILL.md with frontmatter
 │   ├── new-feature/          (trigger conditions, locking, hooks)
 │   ├── bug-fix/              and four required sections
@@ -233,7 +234,7 @@ Key constraints:
 │   ├── compliance-audit/  data-inventory/  legal-docs/   Compliance pack
 │   ├── deploy/  release/  incident/  dr-plan/            Operations
 │   ├── auth-setup/  billing-setup/  email-setup/         Business
-│   └── ... (52 total)
+│   └── ... (53 total)
 ├── agents/                ← 7 specialist subagent definitions
 │   ├── code-reviewer.md      (two-stage review)
 │   ├── test-engineer.md

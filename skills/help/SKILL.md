@@ -22,12 +22,14 @@ instead — it scans project state and prioritizes.
 Display this reference to the user:
 
 ```
-YOUR COMMAND REFERENCE — 52 skills, 6 always-on + 1 on-demand agents
+YOUR COMMAND REFERENCE — 53 skills, 6 always-on + 1 on-demand agents
 
 STARTING & RESUMING
   /init-project [stream]  Bootstrap a new or existing project
   /upgrade-project        Bring an initialized project up to the installed
                           framework (assess, archive old files, never delete)
+  /note [text]            Leave yourself a note — /resume announces unread
+                          notes first, then marks them seen
                           Streams: personal, org1, org2, learning
                           Production scope auto-applied to org1/org2
   /resume                 Pick up where you left off (lifecycle-aware)
@@ -150,6 +152,7 @@ GRAPHIFY (codebase knowledge graph, if installed)
 
 QUICK DECISION TREE
   Starting a session?            → /resume then /recommend
+  Remember something next time?  → /note "text" (surfaces at next /resume)
   Framework updated since init?  → /upgrade-project (archives, never deletes)
   What's next?                   → /recommend
   What's the project state?      → /status
@@ -176,7 +179,7 @@ organized by project phase.
 
 ## Verification
 
-- All 52 installed skills are listed
+- All 53 installed skills are listed
 - Each section grouping is logical
 - Quick decision tree at the bottom resolves common questions
 - Skills the user might not know about are surfaced

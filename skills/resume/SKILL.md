@@ -77,12 +77,25 @@ Read `.claude/state/timer.json`:
   paused timer, ask if they want to resume it.
 - If no timer state: skip.
 
+## Step 6c — Check Notes Inbox
+
+Read `wiki/notes/inbox.md` (and `~/.claude/notes/inbox.md` if no project inbox):
+- Collect all unread notes (lines starting `- [ ]`)
+- These are announced FIRST in the summary — the user left them for this exact moment
+- After announcing, mark each as seen: flip `[ ]` to `[x]` and append `(seen {YYYY-MM-DD})`
+- If no inbox or no unread notes: skip silently
+
 ## Step 7 — Present Resume Summary
 
 Before presenting, re-read TEAM.md to reinforce the team structure.
 
 ```
 Lead Engineer reporting in.
+
+(If unread notes exist — these come first)
+📌 You left {N} note(s) for this session:
+  1. "{note text}" ({date})
+  2. "{note text}" ({date})
 
 Resuming: {project name}
 
@@ -157,6 +170,7 @@ This appears to be a fresh start. Options:
 ## Verification
 
 - Lead Engineer identity stated in the summary
+- Unread notes announced first and marked seen in the inbox file
 - Last session's state accurately reflected
 - Uncommitted changes noted if present
 - Suggested next step comes from the session log's "Next Session Should Start With" field

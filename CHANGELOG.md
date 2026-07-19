@@ -40,6 +40,11 @@ gains by upgrading.
   stamping via /init-project
 - timer.sh helper: /timer state math is now deterministic code, not model-written
   JSON — billing records can't be miscalculated
+- /note (53rd skill): leave yourself a note in `wiki/notes/inbox.md`; /resume
+  announces unread notes FIRST, then marks them seen
+- Mission Control dashboard: approved design mockups in `docs/mockups/` and full
+  build spec in `docs/DASHBOARD-SPEC.md` (companion server, Clockify-style
+  tracker driving timer.sh, printable client statement) — spec'd, not yet built
 
 **Hygiene**
 - Dead `effort:`/`shell:` frontmatter keys removed from all skills

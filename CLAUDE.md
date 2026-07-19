@@ -42,6 +42,7 @@ Read this carefully. When the user is unsure what to do, this table answers it.
 |------|-----|-----|
 | Starting a new project | `/init-project [stream]` | Bootstraps everything — agents, rules, wiki, CI, etc. |
 | Framework improved since project was set up | `/upgrade-project` | Assess → report → archive old files → apply updates → /resume. Never deletes. |
+| Want to remember something next session | `/note "text"` | Appends to wiki/notes/inbox.md — /resume announces unread notes first |
 | After /init-project | `/constitution` | Document non-negotiable principles + constraints |
 | After /init-project on production | `/knowledge bootstrap` | Populate the second brain from project context |
 

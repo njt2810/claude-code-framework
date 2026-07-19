@@ -29,11 +29,11 @@ if not exist "%CLAUDE_HOME%\templates\vendor" mkdir "%CLAUDE_HOME%\templates\ven
 echo    Done.
 
 echo [2/9] Installing skills (slash commands)...
-for %%S in (init-project upgrade-project new-feature bug-fix wrap-up resume learn help document-all evaluate-repo status security-check constitution review-drift knowledge production-audit review-ui framework-check curate lock-skill unlock-skill pin-skill unpin-skill pr compliance-audit data-inventory legal-docs audit-logging-setup vendor-review compliance-status env-setup observability-setup deploy dr-plan incident release feature-flag auth-setup billing-setup email-setup triage feature recommend add-rule migration api-contract onboard-client careful guard freeze unfreeze timer) do (
+for %%S in (init-project upgrade-project note new-feature bug-fix wrap-up resume learn help document-all evaluate-repo status security-check constitution review-drift knowledge production-audit review-ui framework-check curate lock-skill unlock-skill pin-skill unpin-skill pr compliance-audit data-inventory legal-docs audit-logging-setup vendor-review compliance-status env-setup observability-setup deploy dr-plan incident release feature-flag auth-setup billing-setup email-setup triage feature recommend add-rule migration api-contract onboard-client careful guard freeze unfreeze timer) do (
     if not exist "%CLAUDE_HOME%\skills\%%S" mkdir "%CLAUDE_HOME%\skills\%%S"
     copy /Y "skills\%%S\SKILL.md" "%CLAUDE_HOME%\skills\%%S\SKILL.md" >nul 2>&1
 )
-echo    52 skills installed.
+echo    53 skills installed.
 
 echo [3/9] Installing agents...
 copy /Y "agents\*.md" "%CLAUDE_HOME%\agents\" >nul 2>&1
@@ -124,7 +124,7 @@ if exist "%CLAUDE_HOME%\hooks\scripts\verify-before-stop.sh" (
 )
 
 if exist "%CLAUDE_HOME%\skills\init-project\SKILL.md" (
-    echo    OK: 52 skills
+    echo    OK: 53 skills
 ) else (
     echo    MISSING: skills
     set /a ERRORS+=1
@@ -162,10 +162,10 @@ echo.
 echo   Location: %CLAUDE_HOME%
 echo.
 echo   Installed:
-echo     52 skills   (core)
+echo     53 skills   (core)
 echo                   /init-project /upgrade-project
 echo                   /new-feature /bug-fix /pr
-echo                   /wrap-up /resume /learn /help
+echo                   /wrap-up /resume /note /learn /help
 echo                   /document-all /evaluate-repo /status
 echo                   /security-check /constitution
 echo                   /review-drift /knowledge

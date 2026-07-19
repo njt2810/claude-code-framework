@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mission Control — mockup</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:      #f4f3ef;
+    --surface:   #fcfcfb;
+    --rail:      #1c2433;   /* ledger ink — the rail wears the statement's identity */
+    --rail-ink:  #e8e6df;
+    --rail-mut:  #8d94a3;
+    --ink:       #14171d;
+    --ink-2:     #4c4f56;
+    --muted:     #6b6963;
+    --grid:      #e3e1d9;
+    --baseline:  #c3c2b7;
+    --ring:      rgba(11,11,11,0.10);
+    --accent:    #1e5a48;   /* ledger green */
+    --series-1:  #2a78d6;
+    --series-2:  #008300;
+    --good:      #0ca30c;
+    --good-text: #006300;
+    --warning:   #fab219;
+    --serious:   #ec835a;
+    --critical:  #d03b3b;
+    --run:       #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page:      #101113;
+      --surface:   #1a1a19;
+      --rail:      #14181f;
+      --rail-ink:  #e8e6df;
+      --rail-mut:  #7d8492;
+      --ink:       #ffffff;
+      --ink-2:     #c3c2b7;
+      --muted:     #939189;
+      --grid:      #2c2c2a;
+      --baseline:  #383835;
+      --ring:      rgba(255,255,255,0.10);
+      --accent:    #3f9c82;
+      --series-1:  #3987e5;
+      --good-text: #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page:      #101113;
+    --surface:   #1a1a19;
+    --rail:      #14181f;
+    --rail-ink:  #e8e6df;
+    --rail-mut:  #7d8492;
+    --ink:       #ffffff;
+    --ink-2:     #c3c2b7;
+    --muted:     #939189;
+    --grid:      #2c2c2a;
+    --baseline:  #383835;
+    --ring:      rgba(255,255,255,0.10);
+    --accent:    #3f9c82;
+    --series-1:  #3987e5;
+    --good-text: #0ca30c;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--page); color: var(--ink);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    font-size: 14px; line-height: 1.5;
+    display: grid; grid-template-columns: 218px 1fr;
+  }
+  .serif { font-family: Cambria, Georgia, serif; }
+  .mono  { font-family: Consolas, "Courier New", monospace; }
+  .microlabel {
+    font-size: 11px; font-weight: 650; letter-spacing: 0.09em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  button { font: inherit; cursor: pointer; }
+
+  /* ═══ left rail ═══ */
+  .rail {
+    background: var(--rail); color: var(--rail-ink);
+    padding: 22px 14px; display: flex; flex-direction: column; gap: 2px;
+    position: sticky; top: 0; height: 100vh;
+  }
+  .wordmark { padding: 0 10px 18px; }
+  .wordmark .t { font-family: Cambria, Georgia, serif; font-size: 19px; letter-spacing: 0.01em; }
+  .wordmark .s { font-size: 11px; color: var(--rail-mut); letter-spacing: 0.08em; text-transform: uppercase; }
+  .rail nav { display: flex; flex-direction: column; gap: 2px; }
+  .rail .navlabel { font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--rail-mut); padding: 14px 10px 5px; }
+  .rail button.nav {
+    display: flex; align-items: center; gap: 9px; width: 100%;
+    background: none; border: none; color: var(--rail-ink);
+    text-align: left; font-size: 13.5px; padding: 8px 10px; border-radius: 8px;
+  }
+  .rail button.nav:hover { background: rgba(255,255,255,0.07); }
+  .rail button.nav.active { background: rgba(255,255,255,0.13); font-weight: 650; }
+  .rail button.nav .pulse {
+    margin-left: auto; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--run); animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.35 } }
+  @media (prefers-reduced-motion: reduce) { .rail button.nav .pulse { animation: none; } }
+  .railfoot { margin-top: auto; padding: 12px 10px 0; font-size: 11.5px; color: var(--rail-mut); border-top: 1px solid rgba(255,255,255,0.1); }
+  .railfoot button { background: none; border: 1px solid rgba(255,255,255,0.2); color: var(--rail-ink); border-radius: 6px; font-size: 11.5px; padding: 3px 9px; margin-top: 8px; }
+
+  /* ═══ main ═══ */
+  main { padding: 26px clamp(18px, 3.5vw, 44px) 60px; max-width: 1080px; }
+  .mock-banner {
+    font-size: 12px; color: var(--ink-2); border: 1px dashed var(--baseline);
+    border-radius: 8px; padding: 6px 12px; margin-bottom: 22px; background: var(--surface);
+  }
+  .page { display: none; }
+  .page.active { display: block; }
+  .pagehead { margin-bottom: 20px; }
+  .pagehead h1 { font-family: Cambria, Georgia, serif; font-size: 24px; font-weight: 550; letter-spacing: -0.01em; }
+  .pagehead .sub { color: var(--ink-2); font-size: 13px; }
+
+  .panel { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 18px 20px; }
+
+  /* ═══ overview: the briefing ═══ */
+  .briefing {
+    font-family: Cambria, Georgia, serif; font-size: 19px; line-height: 1.55;
+    max-width: 62ch; margin-bottom: 26px;
+  }
+  .briefing .hot  { border-bottom: 2px solid var(--critical); }
+  .briefing .warm { border-bottom: 2px solid var(--warning); }
+  .briefing .act { font-family: "Segoe UI", system-ui, sans-serif; font-size: 13px; color: var(--ink-2); display: block; margin-top: 10px; }
+  .briefing .act code { font-family: Consolas, monospace; font-size: 12px; background: color-mix(in srgb, var(--ink) 7%, transparent); padding: 1px 6px; border-radius: 4px; }
+
+  .portfolio { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 14px; margin-bottom: 26px; }
+  .proj { display: flex; flex-direction: column; gap: 7px; }
+  .proj .top { display: flex; align-items: center; gap: 8px; }
+  .proj .name { font-weight: 650; font-size: 15px; }
+  .badge {
+    font-size: 10px; font-weight: 650; letter-spacing: 0.05em; text-transform: uppercase;
+    padding: 2px 8px; border-radius: 99px; border: 1px solid var(--ring); color: var(--ink-2);
+  }
+  .badge.prod { border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--accent); }
+  .proj .meta { color: var(--ink-2); font-size: 12.5px; }
+  .proj .meta .mono { font-size: 11.5px; color: var(--muted); }
+  .flag { font-size: 12.5px; display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .flag .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .ok { color: var(--good-text); } .ok .dot { background: var(--good); }
+  .warn .dot { background: var(--warning); } .bad .dot { background: var(--critical); }
+
+  /* ═══ tracker (clockify-style) ═══ */
+  .trackbar {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    background: var(--surface); border: 1px solid var(--ring); border-radius: 12px;
+    padding: 12px 14px; margin-bottom: 24px;
+  }
+  .trackbar input[type=text] {
+    flex: 1 1 220px; border: none; background: none; color: var(--ink);
+    font: inherit; font-size: 14.5px; padding: 8px 6px; outline-offset: 4px;
+  }
+  .trackbar input::placeholder { color: var(--muted); }
+  .chip {
+    border: 1px solid var(--baseline); background: none; color: var(--ink-2);
+    border-radius: 8px; padding: 7px 12px; font-size: 12.5px;
+  }
+  .chip.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .clock {
+    font-family: Cambria, Georgia, serif; font-variant-numeric: tabular-nums;
+    font-size: 30px; letter-spacing: 0.01em; min-width: 128px; text-align: right;
+  }
+  .clock.idle { color: var(--muted); }
+  .bigbtn {
+    border: none; border-radius: 9px; font-weight: 650; font-size: 13.5px;
+    padding: 11px 22px; color: #fff; background: var(--accent);
+  }
+  .bigbtn.stop { background: var(--run); }
+  .bigbtn.pausebtn { background: none; border: 1px solid var(--baseline); color: var(--ink-2); font-weight: 600; }
+
+  .daygroup { margin-bottom: 20px; }
+  .dayhead { display: flex; justify-content: space-between; align-items: baseline; padding: 0 4px 7px; }
+  .dayhead .sum { font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 13px; }
+  .entryrow {
+    display: grid; grid-template-columns: 1fr auto auto; gap: 14px; align-items: center;
+    background: var(--surface); border: 1px solid var(--ring); border-radius: 10px;
+    padding: 11px 15px; margin-bottom: 8px;
+  }
+  .entryrow .what .t { font-weight: 600; font-size: 13.5px; }
+  .entryrow .proof { font-family: Consolas, monospace; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .entryrow .tag { font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); font-weight: 650; }
+  .entryrow .dur { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .weektotal {
+    display: flex; justify-content: space-between; padding: 12px 15px; margin-top: 4px;
+    border-top: 2px solid var(--ink); font-weight: 650;
+  }
+  .weektotal .n { font-family: Cambria, Georgia, serif; font-size: 17px; }
+  .statement-cta { display: flex; align-items: center; gap: 12px; margin-top: 20px; font-size: 13px; color: var(--ink-2); }
+  .statement-cta a { color: var(--ink); font-weight: 650; }
+
+  /* ═══ notes ═══ */
+  .notebox { display: flex; gap: 10px; margin-bottom: 22px; }
+  .notebox textarea {
+    flex: 1; resize: vertical; min-height: 64px; font: inherit; font-size: 13.5px;
+    color: var(--ink); background: var(--surface); border: 1px solid var(--ring);
+    border-radius: 10px; padding: 11px 13px;
+  }
+  .notebox button { align-self: flex-end; }
+  .note {
+    display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: baseline;
+    padding: 11px 4px; border-bottom: 1px solid var(--grid); font-size: 13.5px;
+  }
+  .note .when { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .note .st { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+  .note .st.unread { color: var(--critical); }
+  .note .st.seen { color: var(--muted); }
+  .notes-explain { font-size: 12.5px; color: var(--ink-2); margin-top: 16px; max-width: 68ch; }
+
+  /* ═══ board ═══ */
+  .kanban { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+  .colhead { display: flex; justify-content: space-between; margin-bottom: 10px; }
+  .count { color: var(--muted); font-size: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 11px 13px; margin-bottom: 10px; font-size: 13px; }
+  .card .t { font-weight: 600; margin-bottom: 3px; }
+  .card .sub { color: var(--muted); font-size: 11.5px; font-family: Consolas, monospace; }
+  .card.aging { border-left: 3px solid var(--warning); }
+
+  /* ═══ costs / shared ═══ */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .tile .v { font-family: Cambria, Georgia, serif; font-size: 27px; font-weight: 550; margin: 2px 0; }
+  .tile .d { font-size: 12.5px; color: var(--ink-2); }
+  .twocol { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 900px) { .twocol { grid-template-columns: 1fr; } }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 10.5px; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--baseline); }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--grid); }
+  tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .gbar-chart { display: flex; gap: 26px; align-items: flex-end; height: 140px; border-bottom: 1px solid var(--baseline); }
+  .gmonth { flex: 1; display: flex; gap: 2px; align-items: flex-end; justify-content: center; height: 100%; }
+  .gbar { width: 26px; border-radius: 4px 4px 0 0; min-height: 2px; position: relative; }
+  .gbar.s1 { background: var(--series-1); } .gbar.s2 { background: var(--series-2); }
+  .gbar .tip { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--page); font-size: 11.5px; padding: 3px 8px; border-radius: 5px; white-space: nowrap; z-index: 2; }
+  .gbar:hover .tip, .gbar:focus-visible .tip { display: block; }
+  .gbar:focus-visible { outline: 2px solid var(--series-1); outline-offset: 2px; }
+  .gxlabels { display: flex; gap: 26px; margin-top: 6px; }
+  .gxlabels span { flex: 1; text-align: center; font-size: 12px; color: var(--muted); }
+  .legend { display: flex; gap: 18px; margin: 12px 0 2px; font-size: 12.5px; color: var(--ink-2); }
+  .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
+
+  /* ═══ docs ═══ */
+  .docs { display: grid; grid-template-columns: 225px minmax(0, 1fr); gap: 18px; }
+  @media (max-width: 780px) { .docs { grid-template-columns: 1fr; } }
+  .doctree { font-size: 13px; }
+  .doctree .dir { color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; margin: 12px 0 4px; }
+  .doctree .dir:first-child { margin-top: 0; }
+  .doctree a { display: block; color: var(--ink-2); text-decoration: none; padding: 3px 8px; border-radius: 6px; }
+  .doctree a.sel { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--ink); }
+  .docbody { max-width: 68ch; }
+  .docbody h2 { font-family: Cambria, Georgia, serif; font-size: 17px; margin-bottom: 8px; }
+  .docbody h3 { font-size: 13.5px; margin: 14px 0 4px; }
+  .docbody p, .docbody li { font-size: 13.5px; color: var(--ink-2); }
+  .docbody ul { padding-left: 18px; }
+  .placeholder { color: var(--ink-2); font-size: 13.5px; max-width: 60ch; }
+  .placeholder .box { margin-top: 12px; border: 1px dashed var(--baseline); border-radius: 10px; padding: 40px 20px; text-align: center; color: var(--muted); }
+
+  @media (max-width: 700px) {
+    body { grid-template-columns: 1fr; }
+    .rail { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; }
+    .rail nav { flex-direction: row; flex-wrap: wrap; }
+    .railfoot { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══ RAIL ═══ -->
+<aside class="rail">
+  <div class="wordmark">
+    <div class="t">Mission Control</div>
+    <div class="s">N.T. — Data &amp; Product</div>
+  </div>
+  <nav>
+    <button class="nav active" onclick="go(event,'overview')">Overview</button>
+    <button class="nav" onclick="go(event,'tracker')">Tracker <span class="pulse" id="railPulse" hidden></span></button>
+    <button class="nav" onclick="go(event,'board')">Board</button>
+    <button class="nav" onclick="go(event,'notes')">My notes</button>
+    <span class="navlabel">Business</span>
+    <button class="nav" onclick="go(event,'costs')">Costs</button>
+    <span class="navlabel">Knowledge</span>
+    <button class="nav" onclick="go(event,'docs')">Docs</button>
+    <button class="nav" onclick="go(event,'graph')">Graph</button>
+  </nav>
+  <div class="railfoot">
+    framework 2026.07.19<br>3 projects · 2 streams
+    <br><button onclick="toggleTheme()">◐ theme</button>
+  </div>
+</aside>
+
+<main>
+<div class="mock-banner"><strong>Design mockup.</strong> Tracker and notes work in-browser (demo state, saved locally). The real version reads your project files and drives <span class="mono">timer.sh</span> through a small local companion.</div>
+
+<!-- ═══ OVERVIEW ═══ -->
+<div class="page active" id="overview">
+  <div class="pagehead"><h1>Saturday evening</h1><div class="sub">19 July 2026 · last refreshed 11:42 PM</div></div>
+
+  <p class="briefing">
+    One timer is <span class="hot">running on client-analytics</span> — acme, 1h 14m so far.
+    A pull request on data-pipeline has been <span class="warm">waiting nine days</span>,
+    and two projects can take the <span class="warm">July framework upgrade</span>.
+    Everything else is quiet.
+    <span class="act">Fastest wins: <code>/timer stop</code> before you close tonight · review PR #38 · <code>/upgrade-project</code> when convenient</span>
+  </p>
+
+  <div class="microlabel" style="margin-bottom:10px">Projects</div>
+  <div class="portfolio">
+    <div class="panel proj">
+      <div class="top"><span class="name">client-analytics</span><span class="badge prod">org1</span></div>
+      <div class="meta">today, 9:14 PM · <span class="mono">fix/dashboard-mobile · 3 unsaved · PR #42 ✓</span></div>
+      <div class="flag warn"><span class="dot"></span>2 compliance items · ⏱ timer running</div>
+    </div>
+    <div class="panel proj">
+      <div class="top"><span class="name">data-pipeline</span><span class="badge prod">org2</span></div>
+      <div class="meta">3 days ago · <span class="mono">main · clean</span> · upgrade available</div>
+      <div class="flag warn"><span class="dot"></span>PR #38 stale (9 days)</div>
+    </div>
+    <div class="panel proj">
+      <div class="top"><span class="name">recipe-box</span><span class="badge">personal</span></div>
+      <div class="meta">2 weeks ago · <span class="mono">main · clean</span></div>
+      <div class="flag ok"><span class="dot"></span>Nothing needs attention</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ TRACKER ═══ -->
+<div class="page" id="tracker">
+  <div class="pagehead"><h1>Tracker</h1><div class="sub">Client billable time — every stop writes to the client's log with git evidence</div></div>
+
+  <div class="trackbar">
+    <input type="text" id="tDesc" placeholder="What are you working on?" value="dashboard layout bug">
+    <button class="chip on" id="tClient">acme</button>
+    <button class="chip" id="tType">bug-fix ▾</button>
+    <span class="clock idle" id="tClock">0:00:00</span>
+    <button class="bigbtn pausebtn" id="tPause" onclick="pauseTimer()" hidden>Pause</button>
+    <button class="bigbtn" id="tGo" onclick="toggleTimer()">Start</button>
+  </div>
+
+  <div class="daygroup">
+    <div class="dayhead"><span class="microlabel">Today · Sat 19 Jul</span><span class="sum" id="todaySum">2h 55m</span></div>
+    <div id="todayEntries">
+      <div class="entryrow"><div class="what"><div class="t">Mobile layout corrections</div><div class="proof">4 commits · 9 files · fix/dashboard-mobile · PR #42</div></div><span class="tag">bug-fix</span><span class="dur">2h 55m</span></div>
+    </div>
+  </div>
+
+  <div class="daygroup">
+    <div class="dayhead"><span class="microlabel">Fri 18 Jul</span><span class="sum">1h 44m</span></div>
+    <div class="entryrow"><div class="what"><div class="t">Churn cohort view</div><div class="proof">2 commits · 5 files · feature/churn-cohorts</div></div><span class="tag">dashboard</span><span class="dur">1h 44m</span></div>
+  </div>
+
+  <div class="daygroup">
+    <div class="dayhead"><span class="microlabel">Tue 15 Jul</span><span class="sum">1h 55m</span></div>
+    <div class="entryrow"><div class="what"><div class="t">CSV import failure</div><div class="proof">3 commits · 7 files · PR #36 merged</div></div><span class="tag">bug-fix</span><span class="dur">1h 55m</span></div>
+  </div>
+
+  <div class="weektotal"><span>This week · acme</span><span class="n" id="weekSum">6h 34m</span></div>
+
+  <div class="statement-cta">
+    Month-to-date: 12h 40m across 6 sessions →
+    <a href="timer-report-mockup.html">Open client statement (printable)</a>
+  </div>
+</div>
+
+<!-- ═══ BOARD ═══ -->
+<div class="page" id="board">
+  <div class="pagehead"><h1>Board</h1><div class="sub">client-analytics · from wiki/features/ — move cards with /feature, this view reads the files</div></div>
+  <div class="kanban">
+    <div class="col"><div class="colhead"><span class="microlabel">Backlog</span><span class="count">2</span></div>
+      <div class="card"><div class="t">Export dashboard as PDF</div><div class="sub">added 12 Jul</div></div>
+      <div class="card"><div class="t">Email alerts on threshold</div><div class="sub">added 15 Jul</div></div>
+    </div>
+    <div class="col"><div class="colhead"><span class="microlabel">In progress</span><span class="count">3</span></div>
+      <div class="card"><div class="t">Dashboard mobile layout</div><div class="sub">fix/dashboard-mobile</div></div>
+      <div class="card"><div class="t">Churn cohort view</div><div class="sub">feature/churn-cohorts</div></div>
+      <div class="card aging"><div class="t">Data import validation</div><div class="sub">in progress 11 days ⚠</div></div>
+    </div>
+    <div class="col"><div class="colhead"><span class="microlabel">Review</span><span class="count">1</span></div>
+      <div class="card"><div class="t">Retry logic for ingest</div><div class="sub">PR #38 · CI passing</div></div>
+    </div>
+    <div class="col"><div class="colhead"><span class="microlabel">Shipped</span><span class="count">2</span></div>
+      <div class="card"><div class="t">Initial dashboard</div><div class="sub">shipped 12 Jun</div></div>
+      <div class="card"><div class="t">Auth + roles</div><div class="sub">shipped 24 Jun</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ NOTES ═══ -->
+<div class="page" id="notes">
+  <div class="pagehead"><h1>My notes</h1><div class="sub">Anything you type here is saved and read back to you at the next /resume</div></div>
+
+  <div class="notebox">
+    <textarea id="noteInput" placeholder="Note to the next session — an idea, a reminder, something to tell Claude…"></textarea>
+    <button class="bigbtn" onclick="addNote()">Save note</button>
+  </div>
+
+  <div id="noteList">
+    <div class="note"><span class="when">19 Jul · 10:05 PM</span><span>Ask Claude to check whether the acme churn numbers need a data refresh before Monday's call.</span><span class="st unread">unread</span></div>
+    <div class="note"><span class="when">18 Jul · 6:40 PM</span><span>Idea: the statement could include a short "what's next month" line at the bottom.</span><span class="st seen">seen 19 Jul</span></div>
+    <div class="note"><span class="when">15 Jul · 11:20 PM</span><span>Remember to ask about the Vercel bill — it looked higher than usual.</span><span class="st seen">seen 17 Jul</span></div>
+  </div>
+
+  <p class="notes-explain">
+    <strong>How this works in the real version:</strong> notes are appended to
+    <span class="mono">wiki/notes/inbox.md</span> with a timestamp. When you run
+    <span class="mono">/resume</span>, unread notes are announced first — before anything else —
+    then marked as seen. You can also jot one from inside any session with
+    <span class="mono">/note "text"</span>, no dashboard needed.
+  </p>
+</div>
+
+<!-- ═══ COSTS ═══ -->
+<div class="page" id="costs">
+  <div class="pagehead"><h1>Costs</h1><div class="sub">Claude sessions + service subscriptions, by stream</div></div>
+  <div class="tiles">
+    <div class="panel tile"><div class="microlabel">Claude sessions · July</div><div class="v">$38.20</div><div class="d">across all projects</div></div>
+    <div class="panel tile"><div class="microlabel">Subscriptions / month</div><div class="v">$64.00</div><div class="d">4 services</div></div>
+    <div class="panel tile"><div class="microlabel">Cost per billed hour</div><div class="v">$3.01</div><div class="d">July sessions ÷ acme hours</div></div>
+  </div>
+  <div class="twocol">
+    <div class="panel">
+      <div class="microlabel" style="margin-bottom:12px">Session costs by month</div>
+      <div class="gbar-chart">
+        <div class="gmonth">
+          <div class="gbar s1" style="height:38%" tabindex="0" aria-label="May, org1: $16.40"><span class="tip">org1 · $16.40</span></div>
+          <div class="gbar s2" style="height:22%" tabindex="0" aria-label="May, org2: $9.10"><span class="tip">org2 · $9.10</span></div>
+        </div>
+        <div class="gmonth">
+          <div class="gbar s1" style="height:64%" tabindex="0" aria-label="June, org1: $27.60"><span class="tip">org1 · $27.60</span></div>
+          <div class="gbar s2" style="height:30%" tabindex="0" aria-label="June, org2: $12.80"><span class="tip">org2 · $12.80</span></div>
+        </div>
+        <div class="gmonth">
+          <div class="gbar s1" style="height:58%" tabindex="0" aria-label="July, org1: $25.10"><span class="tip">org1 · $25.10</span></div>
+          <div class="gbar s2" style="height:31%" tabindex="0" aria-label="July, org2: $13.10"><span class="tip">org2 · $13.10</span></div>
+        </div>
+      </div>
+      <div class="gxlabels"><span>May</span><span>Jun</span><span>Jul</span></div>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--series-1)"></span>org1</span>
+        <span><span class="sw" style="background:var(--series-2)"></span>org2</span>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="microlabel" style="margin-bottom:10px">Service subscriptions</div>
+      <table>
+        <tr><th>Service</th><th>Used by</th><th class="num">$/mo</th></tr>
+        <tr><td>Vercel Pro</td><td>client-analytics</td><td class="num">20.00</td></tr>
+        <tr><td>Neon Scale</td><td>client-analytics, data-pipeline</td><td class="num">19.00</td></tr>
+        <tr><td>Resend</td><td>client-analytics</td><td class="num">20.00</td></tr>
+        <tr><td>Sentry Team</td><td>data-pipeline</td><td class="num">5.00</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DOCS ═══ -->
+<div class="page" id="docs">
+  <div class="pagehead"><h1>Docs</h1><div class="sub">client-analytics wiki</div></div>
+  <div class="docs">
+    <div class="panel doctree">
+      <div class="dir">wiki/</div>
+      <a href="#" onclick="return false">architecture.md</a>
+      <a href="#" onclick="return false" class="sel">memory.md</a>
+      <a href="#" onclick="return false">conventions.md</a>
+      <div class="dir">decisions/</div>
+      <a href="#" onclick="return false">001-neon-over-supabase.md</a>
+      <a href="#" onclick="return false">002-monthly-reports.md</a>
+      <div class="dir">runbooks/</div>
+      <a href="#" onclick="return false">deploy.md</a>
+      <a href="#" onclick="return false">incident-response.md</a>
+      <div class="dir">clients/acme/</div>
+      <a href="#" onclick="return false">time-log.md</a>
+      <a href="#" onclick="return false">reports/2026-07.md</a>
+    </div>
+    <div class="panel docbody">
+      <h2>memory.md</h2>
+      <p>Project knowledge that must survive sessions. Append-only.</p>
+      <h3>Data</h3>
+      <ul>
+        <li>Acme's export CSVs use <em>semicolons</em>, not commas — the importer normalizes this</li>
+        <li>Churn is defined as 60 days without login (agreed with client 02 Jul)</li>
+      </ul>
+      <h3>Deploy</h3>
+      <ul>
+        <li>Vercel preview deploys work off PR branches; production only from main</li>
+        <li>Neon branch resets: use the runbook, never the console directly</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ GRAPH ═══ -->
+<div class="page" id="graph">
+  <div class="pagehead"><h1>Graph</h1><div class="sub">Codebase knowledge graph (graphify)</div></div>
+  <div class="panel placeholder">
+    This tab embeds the existing <strong>graphify</strong> output (<span class="mono">graphify-out/</span>
+    already generates its own interactive HTML). If graphify hasn't been run for the project,
+    this shows the command to build it instead.
+    <div class="box">graphify-out/GRAPH_REPORT.html renders here (iframe — no rebuild needed)</div>
+  </div>
+</div>
+
+</main>
+
+<script>
+  /* ── nav ── */
+  function go(ev, id) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.rail button.nav').forEach(b => b.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+    ev.currentTarget.classList.add('active');
+  }
+  function toggleTheme() {
+    const r = document.documentElement;
+    const dark = r.getAttribute('data-theme') === 'dark' ||
+      (!r.getAttribute('data-theme') && matchMedia('(prefers-color-scheme: dark)').matches);
+    r.setAttribute('data-theme', dark ? 'light' : 'dark');
+  }
+
+  /* ── tracker demo — state persists in localStorage; real version drives timer.sh ── */
+  const LS = 'mc-demo-timer';
+  let tState = JSON.parse(localStorage.getItem(LS) || 'null'); // {startedAt, acc, paused}
+  let tick = null;
+
+  function fmt(s) {
+    const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60;
+    return h + ':' + String(m).padStart(2,'0') + ':' + String(x).padStart(2,'0');
+  }
+  function elapsed() {
+    if (!tState) return 0;
+    return tState.acc + (tState.paused ? 0 : Math.floor((Date.now() - tState.startedAt)/1000));
+  }
+  function render() {
+    const clock = document.getElementById('tClock');
+    const goBtn = document.getElementById('tGo');
+    const pauseBtn = document.getElementById('tPause');
+    const pulse = document.getElementById('railPulse');
+    if (tState) {
+      clock.textContent = fmt(elapsed());
+      clock.classList.remove('idle');
+      goBtn.textContent = 'Stop'; goBtn.classList.add('stop');
+      pauseBtn.hidden = false;
+      pauseBtn.textContent = tState.paused ? 'Resume' : 'Pause';
+      pulse.hidden = tState.paused;
+    } else {
+      clock.textContent = '0:00:00';
+      clock.classList.add('idle');
+      goBtn.textContent = 'Start'; goBtn.classList.remove('stop');
+      pauseBtn.hidden = true;
+      pulse.hidden = true;
+    }
+  }
+  function save() { tState ? localStorage.setItem(LS, JSON.stringify(tState)) : localStorage.removeItem(LS); }
+  function toggleTimer() {
+    if (!tState) {
+      tState = { startedAt: Date.now(), acc: 0, paused: false };
+    } else {
+      // stop → append a demo entry to today
+      const secs = elapsed();
+      const mins = Math.max(1, Math.round(secs/60));
+      const d = document.createElement('div');
+      d.className = 'entryrow';
+      const desc = document.getElementById('tDesc').value || 'Untitled work';
+      d.innerHTML = '<div class="what"><div class="t"></div><div class="proof">demo entry — real version captures commits + files via timer.sh</div></div>' +
+                    '<span class="tag">bug-fix</span><span class="dur">' + (mins >= 60 ? Math.floor(mins/60)+'h ' : '') + (mins%60) + 'm</span>';
+      d.querySelector('.t').textContent = desc;
+      document.getElementById('todayEntries').prepend(d);
+      tState = null;
+    }
+    save(); render();
+  }
+  function pauseTimer() {
+    if (!tState) return;
+    if (tState.paused) { tState.paused = false; tState.startedAt = Date.now(); }
+    else { tState.acc = elapsed(); tState.paused = true; }
+    save(); render();
+  }
+  tick = setInterval(render, 1000);
+  render();
+
+  /* ── notes demo ── */
+  function addNote() {
+    const ta = document.getElementById('noteInput');
+    const text = ta.value.trim();
+    if (!text) return;
+    const n = document.createElement('div');
+    n.className = 'note';
+    const now = new Date();
+    const when = now.getDate() + ' Jul · ' + now.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+    n.innerHTML = '<span class="when"></span><span></span><span class="st unread">unread</span>';
+    n.children[0].textContent = when;
+    n.children[1].textContent = text;
+    document.getElementById('noteList').prepend(n);
+    ta.value = '';
+  }
+</script>
+</body>
+</html>
