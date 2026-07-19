@@ -7,7 +7,6 @@ description: |
   DO NOT TRIGGER when: the user wants a code-level dependency audit (use /security-check).
 argument-hint: "[vendor-name] (optional)"
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

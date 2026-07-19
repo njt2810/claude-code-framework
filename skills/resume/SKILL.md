@@ -6,8 +6,6 @@ description: |
   DO NOT TRIGGER when: the user is starting a brand new task with no prior context,
   or wants to initialize a project (/init-project).
 disable-model-invocation: true
-effort: medium
-shell: bash
 user_locked: true
 pinned: true
 ---

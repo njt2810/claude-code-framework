@@ -6,7 +6,6 @@ description: |
   DO NOT TRIGGER when: the user wants observability/error tracking (use /observability-setup),
   or normal application logs (those are separate from audit logs).
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

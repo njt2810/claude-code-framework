@@ -7,7 +7,6 @@ description: |
   DO NOT TRIGGER when: the user wants secrets rotation only (that's an ops task),
   or just wants to add a single env var (just edit .env.example directly).
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

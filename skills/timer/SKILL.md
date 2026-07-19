@@ -6,7 +6,6 @@ description: |
   pause, resume, status, list, report.
   DO NOT TRIGGER when: the user wants session duration (/wrap-up handles that)
   or asks about internal product work (use /feature, not /timer).
-effort: low
 user_locked: true
 ---
 
@@ -24,6 +23,12 @@ via /feature lifecycle.
 - Client log:   `wiki/clients/{client}/time-log.md` (append-only)
 - Reports:      `wiki/clients/{client}/reports/{YYYY-MM}.md`
 
+**IMPORTANT — never hand-write timer.json.** All state operations go through the
+helper script so billing math is deterministic:
+`bash ~/.claude/hooks/scripts/timer.sh {start|pause|resume|stop|status}`
+The skill's job is the conversation (asking client/type/note) and the log/report
+writing; the script's job is the state file and duration arithmetic.
+
 ## Subcommands
 
 ### `/timer start [note] [--client X] [--type Y]`
@@ -37,56 +42,41 @@ via /feature lifecycle.
 3. Resolve type. If not passed, ask:
    "What kind of work? bug-fix / feature / dashboard / data / support / research / meeting / other"
 4. If no note passed, ask: "One-line note describing what you're working on?"
-5. Capture: ISO start time, current branch (`git branch --show-current`),
-   starting commit (`git rev-parse HEAD`)
-6. Ensure `.claude/state/` exists. Write `.claude/state/timer.json`:
-   ```json
-   {
-     "active": true,
-     "mode": "running",
-     "client": "acme",
-     "type": "bug-fix",
-     "note": "fixing dashboard layout",
-     "started_at": "2026-06-29T14:14:00+08:00",
-     "branch": "fix/dashboard-mobile",
-     "starting_commit": "a1b2c3d",
-     "accumulated_seconds": 0
-   }
-   ```
-7. Confirm: "⏱ Timer started — acme · bug-fix · 'fixing dashboard layout' · 2:14 PM"
+5. Run: `bash ~/.claude/hooks/scripts/timer.sh start {client} {type} "{note}"`
+   — the script captures start time, branch, and starting commit itself, and
+   refuses if a timer is already active (exit 1).
+6. Confirm: "⏱ Timer started — acme · bug-fix · 'fixing dashboard layout' · 2:14 PM"
 
 ### `/timer stop [--note "updated note"]`
 
-1. Read state. If not active → error: "No timer running."
-2. Compute duration:
-   - If mode=running: `(now - started_at) + accumulated_seconds`
-   - If mode=paused:  `accumulated_seconds`
-3. If `--note` passed, replace stored note. Else ask:
+1. If `--note` passed, note it for the log entry. Else ask:
    "Anything to add to the note before logging?"
-4. Evidence capture:
+2. Run: `bash ~/.claude/hooks/scripts/timer.sh stop`
+   — prints the final state as JSON (client, type, note, branch, starting_commit,
+   `total_seconds`, `stopped_at`) and deletes the state file. Exit 1 = no timer.
+   Use `total_seconds` from the script — do NOT recompute duration yourself.
+3. Evidence capture (using `starting_commit` from the script's JSON):
    - `git diff --stat {starting_commit}..HEAD` → file count + line counts
    - `git log --oneline {starting_commit}..HEAD` → commit list
    - Current branch
-5. Append entry to `wiki/clients/{client}/time-log.md` using the format below.
-6. Delete `.claude/state/timer.json`.
-7. Show: "Logged 1h 32m to acme. 5 files, 2 commits. See wiki/clients/acme/time-log.md"
+4. Append entry to `wiki/clients/{client}/time-log.md` using the format below.
+5. Show: "Logged 1h 32m to acme. 5 files, 2 commits. See wiki/clients/acme/time-log.md"
 
 ### `/timer pause`
 
-1. Read state. If not active or already paused → error.
-2. Add `(now - started_at)` to `accumulated_seconds`. Clear `started_at`. Set `mode=paused`.
-3. Show: "⏸ Paused at 47m. /timer resume to continue."
+1. Run: `bash ~/.claude/hooks/scripts/timer.sh pause` (errors if not running).
+2. Show its output: "⏸ Paused at 47m. /timer resume to continue."
 
 ### `/timer resume`
 
-1. Read state. If mode != paused → error.
-2. Set `mode=running`, `started_at=now`.
-3. Show: "▶ Resumed. Accumulated so far: 47m."
+1. Run: `bash ~/.claude/hooks/scripts/timer.sh resume` (errors if not paused).
+2. Show its output: "▶ Resumed. Accumulated so far: 47m."
 
 ### `/timer status`
 
+Run: `bash ~/.claude/hooks/scripts/timer.sh status` and relay:
 - No timer:     "No timer running."
-- Running:      "⏱ acme · bug-fix · 'fixing dashboard layout' · started 2:14 PM · 1h 14m elapsed"
+- Running:      "⏱ acme · bug-fix · 'fixing dashboard layout' · 1h 14m elapsed"
 - Paused:       "⏸ acme · bug-fix · paused at 47m"
 
 ### `/timer list [--client X] [--month YYYY-MM]`

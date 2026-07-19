@@ -9,7 +9,6 @@ description: |
   session state (/status), or to capture a reusable pattern (/learn).
 argument-hint: [bootstrap|update|gaps|search <term>]
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

@@ -8,7 +8,6 @@ description: |
   or the user just wants to push without a PR (use plain git push).
 argument-hint: "[reviewer-username] (optional)"
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

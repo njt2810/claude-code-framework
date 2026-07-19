@@ -6,7 +6,6 @@ description: |
   "this is risky", "extra caution".
   DO NOT TRIGGER when: the user is doing routine work — careful mode adds friction.
 disable-model-invocation: true
-effort: low
 user_locked: true
 pinned: true
 ---

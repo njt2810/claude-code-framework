@@ -6,7 +6,6 @@ description: |
   DO NOT TRIGGER when: the user wants status (/status), to resume (/resume), or
   coached recommendations (/recommend — better for "what should I do next").
 disable-model-invocation: true
-effort: low
 user_locked: true
 ---
 

@@ -6,7 +6,6 @@ description: |
   "exit careful mode".
   DO NOT TRIGGER when: you're entering one of those modes (use that skill directly).
 disable-model-invocation: true
-effort: low
 user_locked: true
 pinned: true
 ---

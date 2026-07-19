@@ -7,7 +7,6 @@ description: |
   DO NOT TRIGGER when: the user asks for project status only (use /status),
   or wants to resume from session log (use /resume).
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

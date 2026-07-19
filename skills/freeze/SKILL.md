@@ -6,7 +6,6 @@ description: |
   incident analysis.
   DO NOT TRIGGER when: the user just wants extra caution (use /careful).
 disable-model-invocation: true
-effort: low
 user_locked: true
 pinned: true
 ---

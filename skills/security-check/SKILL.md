@@ -6,7 +6,6 @@ description: |
   DO NOT TRIGGER when: the user is doing a code review (/code-review), general documentation
   (/document-all), or project setup (/init-project — which has its own security step).
 disable-model-invocation: true
-effort: high
 context: fork
 allowed-tools:
   - Read

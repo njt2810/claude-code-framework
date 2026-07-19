@@ -7,7 +7,6 @@ description: |
   DO NOT TRIGGER when: the user wants a security scan (use /security-check),
   a compliance gap report (use /compliance-audit), or general docs (use /document-all).
 disable-model-invocation: true
-effort: high
 user_locked: true
 pinned: true
 ---

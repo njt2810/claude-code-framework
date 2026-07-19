@@ -6,7 +6,6 @@ description: |
   DO NOT TRIGGER when: the user wants a full audit (use /compliance-audit) or
   data inventory (use /data-inventory).
 disable-model-invocation: true
-effort: low
 user_locked: true
 pinned: true
 ---

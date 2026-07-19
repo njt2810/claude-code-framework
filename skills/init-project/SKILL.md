@@ -7,7 +7,6 @@ description: |
   or resume work (/resume). This is for project SETUP only.
 argument-hint: [stream-name]
 disable-model-invocation: true
-effort: high
 user_locked: true
 pinned: true
 ---

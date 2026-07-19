@@ -6,7 +6,6 @@ description: |
   DO NOT TRIGGER when: the user wants incident response (use /incident),
   or to deploy (use /deploy).
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

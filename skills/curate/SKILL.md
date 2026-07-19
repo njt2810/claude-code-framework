@@ -12,7 +12,6 @@ allowed-tools:
   - Grep
   - Glob
   - Bash
-effort: high
 ---
 
 ## When to Use

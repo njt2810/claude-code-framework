@@ -7,7 +7,6 @@ description: |
   DO NOT TRIGGER when: the user wants audit logs (use /audit-logging-setup) or
   data analytics (different concern).
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

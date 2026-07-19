@@ -7,7 +7,6 @@ description: |
   DO NOT TRIGGER when: the user wants to update a single file, write a README,
   or do a security check (/security-check).
 disable-model-invocation: true
-effort: high
 context: fork
 user_locked: true
 ---

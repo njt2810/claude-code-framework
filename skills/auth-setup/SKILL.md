@@ -6,7 +6,6 @@ description: |
   DO NOT TRIGGER when: the user wants to debug existing auth (use /bug-fix),
   or to set up authorization rules (different concern — handle in code review).
 disable-model-invocation: true
-effort: high
 user_locked: true
 pinned: true
 ---

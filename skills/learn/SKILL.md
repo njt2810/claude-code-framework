@@ -7,7 +7,6 @@ description: |
   DO NOT TRIGGER when: the user wants documentation (/document-all), project setup
   (/init-project), or session wrap-up (/wrap-up — which has its own skill refinement step).
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

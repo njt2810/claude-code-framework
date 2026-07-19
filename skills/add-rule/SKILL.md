@@ -8,7 +8,6 @@ description: |
   change settings.json (different concern).
 argument-hint: "[rule-name] (optional)"
 disable-model-invocation: true
-effort: low
 user_locked: true
 pinned: true
 ---

@@ -6,7 +6,6 @@ description: |
   showing to clients, or requests a quarterly project review.
   DO NOT TRIGGER when: the user wants a code review (/code-review), security-only
   audit (/security-check), project status (/status), or framework health (/framework-check).
-effort: high
 context: fork
 user_locked: true
 pinned: true

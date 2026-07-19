@@ -7,7 +7,6 @@ description: |
   or a UI preference (those are user settings, different concern).
 argument-hint: "[setup|add|list|remove]"
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

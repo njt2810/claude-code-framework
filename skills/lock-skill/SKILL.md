@@ -7,7 +7,6 @@ description: |
   the library (/curate).
 argument-hint: <skill-name>
 disable-model-invocation: true
-effort: low
 user_locked: true
 ---
 

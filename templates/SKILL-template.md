@@ -5,7 +5,6 @@ description: |
   DO NOT TRIGGER when: {when NOT to activate, and what to use instead}.
 argument-hint: {optional — argument format}
 disable-model-invocation: true
-effort: {low|medium|high}
 ---
 
 # {Skill Title}

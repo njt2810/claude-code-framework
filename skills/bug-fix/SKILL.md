@@ -6,7 +6,6 @@ description: |
   DO NOT TRIGGER when: the user wants to add new functionality (/new-feature),
   refactor existing code, improve performance, or do cleanup. Those are /new-feature tasks.
 disable-model-invocation: true
-effort: high
 user_locked: true
 pinned: true
 ---

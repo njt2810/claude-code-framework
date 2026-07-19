@@ -8,7 +8,6 @@ description: |
   or to do general DB ops (different scope).
 argument-hint: "[create|plan|verify|rollback|history] [name]"
 disable-model-invocation: true
-effort: high
 user_locked: true
 pinned: true
 ---

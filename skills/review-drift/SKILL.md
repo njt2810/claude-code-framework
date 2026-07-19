@@ -7,7 +7,6 @@ description: |
   DO NOT TRIGGER when: the user wants a code review (/code-review), security check
   (/security-check), or documentation audit (/document-all).
 disable-model-invocation: true
-effort: high
 context: fork
 user_locked: true
 ---

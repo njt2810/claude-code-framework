@@ -7,7 +7,6 @@ description: |
   or doing pre-sale work (use /triage or general session).
 argument-hint: "[client-name]"
 disable-model-invocation: true
-effort: high
 user_locked: true
 pinned: true
 ---

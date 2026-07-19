@@ -220,7 +220,9 @@ intermediate search results, verbose tool output
 NEVER say "I've fixed the bug" without showing passing test output.
 If you edit the same file 3+ times for one bug, STOP and reassess.
 
-## Codebase Navigation
+## Codebase Navigation (optional — requires the /graphify add-on)
+/graphify is a separately installed community skill, NOT part of this framework.
+If it is not installed, skip this section entirely and read files directly.
 If graphify-out/GRAPH_REPORT.md exists, read it before exploring the codebase.
 If graphify-out/ is missing or stale, read files directly — don't assume the graph exists.
 Use `/graphify query "question"` for specific graph queries.

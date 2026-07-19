@@ -8,7 +8,6 @@ description: |
   (/bug-fix), or do a security audit (/security-check). This is for project-level governance only.
 argument-hint: [project-name]
 disable-model-invocation: true
-effort: high
 user_locked: true
 ---
 

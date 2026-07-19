@@ -7,7 +7,6 @@ description: |
   DO NOT TRIGGER when: the user wants project status (/status), a security audit
   (/security-check), or to evaluate an external repo (/evaluate-repo).
 disable-model-invocation: true
-effort: low
 user_locked: true
 pinned: true
 ---
@@ -190,7 +189,7 @@ If jq is missing:
 
 ```
 ━━━ 🔧 FRAMEWORK HEALTH CHECK ━━━━━━━━━━━━━━━━━━━
-  Framework version: {from settings.json}
+  Framework version: {from ~/.claude/VERSION}
   
   Global files:  {count OK} / {total} ✅
   Skills:        {count OK} / {total} ✅

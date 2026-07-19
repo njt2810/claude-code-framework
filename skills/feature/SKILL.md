@@ -7,7 +7,6 @@ description: |
   fix a known bug (use /bug-fix), or triage incoming support (use /triage).
 argument-hint: "[add|list|show|update|archive|export] [args]"
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

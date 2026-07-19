@@ -165,3 +165,4 @@ fi
 echo "$LINE1"
 [ -n "$LINE2" ] && echo "$LINE2"
 [ -n "$LINE3" ] && echo "$LINE3"
+exit 0

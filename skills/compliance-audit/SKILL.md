@@ -8,7 +8,6 @@ description: |
   data inventory only (use /data-inventory), or legal docs (use /legal-docs).
 argument-hint: "[PDPA|SOC2|both]"
 disable-model-invocation: true
-effort: high
 user_locked: true
 pinned: true
 ---

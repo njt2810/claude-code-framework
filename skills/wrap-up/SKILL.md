@@ -6,7 +6,6 @@ description: |
   DO NOT TRIGGER when: the user is in the middle of active work, wants to compact
   (/compact), or wants to clear context (/clear).
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

@@ -7,7 +7,6 @@ description: |
   or building a new feature (use /new-feature).
 argument-hint: "[ticket-source-or-description]"
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

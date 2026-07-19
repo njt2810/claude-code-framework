@@ -6,7 +6,6 @@ description: |
   or says "guard mode", "this is critical", "highest caution".
   DO NOT TRIGGER when: medium-risk work (use /careful instead) or routine work.
 disable-model-invocation: true
-effort: low
 user_locked: true
 pinned: true
 ---

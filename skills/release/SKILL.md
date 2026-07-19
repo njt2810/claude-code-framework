@@ -7,7 +7,6 @@ description: |
   bug fix to ship urgently (use /bug-fix then /deploy).
 argument-hint: "[major|minor|patch] (default: auto from commits)"
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

@@ -6,8 +6,6 @@ description: |
   DO NOT TRIGGER when: the user wants to resume work (/resume), start a feature
   (/new-feature), or do a full documentation audit (/document-all).
 disable-model-invocation: true
-effort: low
-shell: bash
 user_locked: true
 ---
 

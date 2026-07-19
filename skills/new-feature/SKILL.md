@@ -6,7 +6,6 @@ description: |
   DO NOT TRIGGER when: the user is fixing a bug (/bug-fix), setting up a project (/init-project),
   evaluating a repo (/evaluate-repo), or doing documentation (/document-all).
 disable-model-invocation: true
-effort: high
 user_locked: true
 pinned: true
 ---

@@ -28,6 +28,7 @@ fi
 if [ "$BACKED_UP" = "1" ]; then
   echo "Session state backed up before compaction."
 fi
-echo "REMINDER: After compaction, you are the Lead Engineer. Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent, Compliance Officer + UI/UX Engineer (on-demand)."
+# Identity reload is handled by the SessionStart "compact" hook in settings.json —
+# no duplicate reminder here.
 
 exit 0

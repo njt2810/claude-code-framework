@@ -18,10 +18,8 @@ For UPDATING existing skills:
 4. Wait for approval
 
 For DOWNLOADING tools or packages:
-1. Say: "This task would benefit from {tool}"
-2. Explain: what it does, why needed, install command,
-   security implications, adoption level
-3. Wait for approval
+Follow the Capability Gap Protocol in `capability-gaps.md` — name the gap,
+check the skill catalog, explain, propose with install command, wait for approval.
 
 For GRADUATING learned skills (learned → permanent):
 

@@ -7,7 +7,6 @@ description: |
   or to handle a billing bug (use /bug-fix).
 argument-hint: "[subscription|usage|one-time]"
 disable-model-invocation: true
-effort: high
 user_locked: true
 pinned: true
 ---

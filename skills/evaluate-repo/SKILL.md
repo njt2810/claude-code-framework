@@ -7,7 +7,6 @@ description: |
   or wants to init their own project (/init-project).
 argument-hint: [github-url]
 disable-model-invocation: true
-effort: medium
 user_locked: true
 ---
 

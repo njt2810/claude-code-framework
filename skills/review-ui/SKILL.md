@@ -7,7 +7,6 @@ description: |
   for frontend features.
   DO NOT TRIGGER when: backend-only code review (/code-review), security
   audit (/security-check), general project status (/status), or non-visual work.
-effort: medium
 user_locked: true
 ---
 

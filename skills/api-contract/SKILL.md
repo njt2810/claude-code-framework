@@ -8,7 +8,6 @@ description: |
   or add a single endpoint (just add it then run /api-contract verify).
 argument-hint: "[setup|generate|verify|diff|publish]"
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---

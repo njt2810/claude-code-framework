@@ -6,7 +6,6 @@ description: |
   DO NOT TRIGGER when: the user has a normal bug (use /bug-fix), or wants
   to plan DR (use /dr-plan).
 disable-model-invocation: true
-effort: high
 user_locked: true
 pinned: true
 ---

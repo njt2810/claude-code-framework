@@ -14,8 +14,10 @@ mkdir -p "$LOG_DIR"
 # Read hook input from stdin
 INPUT=$(cat)
 
-# Extract skill name from the hook input
-SKILL_NAME=$(echo "$INPUT" | grep -oE '"skill"\s*:\s*"[^"]*"' | head -1 | sed 's/.*"skill"\s*:\s*"//;s/".*//')
+# Extract skill name from the hook input.
+# `|| true` matters: under set -euo pipefail, a no-match grep would otherwise
+# kill the script before the empty-check below ever runs.
+SKILL_NAME=$(echo "$INPUT" | grep -oE '"skill"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"skill"[[:space:]]*:[[:space:]]*"//;s/".*//' || true)
 
 if [ -z "$SKILL_NAME" ]; then
   exit 0
@@ -33,6 +35,10 @@ if [ -f "$LOG_FILE" ]; then
     mv "$LOG_FILE" "${LOG_FILE}.1"
   fi
 fi
+
+# JSON-escape values so embedded backslashes/quotes can't corrupt the log
+SKILL_NAME=${SKILL_NAME//\\/\\\\}; SKILL_NAME=${SKILL_NAME//\"/\\\"}
+PROJECT_NAME=${PROJECT_NAME//\\/\\\\}; PROJECT_NAME=${PROJECT_NAME//\"/\\\"}
 
 # Write JSONL line
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%S")

@@ -7,7 +7,6 @@ description: |
   or run a build locally (use the build command directly).
 argument-hint: "[dev|staging|production]"
 disable-model-invocation: true
-effort: high
 user_locked: true
 pinned: true
 ---

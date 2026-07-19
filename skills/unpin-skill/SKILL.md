@@ -6,7 +6,6 @@ description: |
   DO NOT TRIGGER when: the user wants to unlock (/unlock-skill) or curate (/curate).
 argument-hint: <skill-name>
 disable-model-invocation: true
-effort: low
 user_locked: true
 ---
 

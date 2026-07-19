@@ -7,7 +7,6 @@ description: |
   or to integrate inbound email parsing (different concern).
 argument-hint: "[transactional|marketing|both]"
 disable-model-invocation: true
-effort: medium
 user_locked: true
 pinned: true
 ---
