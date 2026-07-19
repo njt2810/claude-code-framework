@@ -117,6 +117,14 @@ Check for each of these and report EXISTS or MISSING:
 - `.gitignore`
 - `project-costs.json`
 - `README.md`
+- `.claude/framework-version` (or `framework_version:` in CLAUDE.md)
+
+**Already initialized?** If a framework version stamp exists AND it is older than
+`~/.claude/VERSION`, say:
+"This project was already initialized (framework {old}, installed {new}).
+ Run /upgrade-project instead — it assesses what changed, archives outdated
+ files (never deletes), and applies updates with your approval."
+Then stop. Only continue /init-project if the user explicitly wants a re-init.
 
 Auto-detect the primary stack:
 - `.py` files → Python
@@ -279,6 +287,11 @@ Then the testing standards.
 ### 3.5 Skills
 - Create `.claude/skills/learned/` directory if missing (for the learning system)
 - Preserve any existing skills — do NOT modify or delete them
+
+### 3.5b Version Stamp
+- Write the installed framework version (from `~/.claude/VERSION`) to
+  `.claude/framework-version` — this is what lets /upgrade-project know
+  what the project was initialized with
 
 ### 3.6 Skill Discovery (from Community Catalog)
 

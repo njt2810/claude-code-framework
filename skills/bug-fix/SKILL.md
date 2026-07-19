@@ -9,12 +9,6 @@ disable-model-invocation: true
 effort: high
 user_locked: true
 pinned: true
-hooks:
-  PostToolUse:
-    - matcher: "Edit|Write|MultiEdit"
-      hooks:
-        - type: command
-          command: "bash ~/.claude/hooks/scripts/loop-detector.sh"
 ---
 
 # Evidence-Based Bug Fix Workflow

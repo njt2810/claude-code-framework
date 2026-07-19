@@ -199,7 +199,8 @@ For non-production streams, skip Step 7.
 
 ## Step 8 — Skill Refinement Check
 
-Check learned skills (`.claude/skills/learned/` or skills with `learned: true` frontmatter):
+Check learned skills (the PROJECT's `.claude/skills/learned/` first, then
+`~/.claude/skills/learned/` for global ones, or skills with `learned: true` frontmatter):
 
 For each skill used this session:
 - Did the skill's procedure work as documented?
@@ -209,7 +210,8 @@ For each skill used this session:
 For skills verified 3+ times:
 - Propose promotion to permanent: "The {name} skill has been verified {N} times.
   Promote to permanent? (yes/no)"
-- If approved: move from `.claude/skills/learned/` to `.claude/skills/`
+- If approved: move from `learned/` to the parent skills folder IN THE SAME SCOPE
+  (project skill stays in the project, global stays global — never cross scopes)
 - Propose TEAM.md update
 
 ## Step 9 — Cost & Time Log

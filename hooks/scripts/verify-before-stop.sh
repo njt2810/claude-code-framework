@@ -3,8 +3,12 @@
 # Exit code 2 = force Claude to keep working
 # Exit code 0 = let Claude stop
 
+# Payload arrives as JSON on stdin — key the counter by session id so it persists
+INPUT=$(cat 2>/dev/null)
+SESSION_ID=$(echo "$INPUT" | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"session_id"[[:space:]]*:[[:space:]]*"//;s/"$//')
+
 # Prevent infinite verification loops using a counter file
-VERIFY_COUNTER="${TEMP:-/tmp}/claude-verify-counter-$$"
+VERIFY_COUNTER="${TEMP:-/tmp}/claude-verify-counter-${SESSION_ID:-default}"
 if [ ! -f "$VERIFY_COUNTER" ]; then
   echo "0" > "$VERIFY_COUNTER"
 fi
@@ -23,8 +27,8 @@ fi
 TEST_CMD=""
 
 if [ -f "package.json" ]; then
-  # Check if test script exists (without jq — use grep)
-  HAS_TEST=$(grep -oP '"test"\s*:\s*"[^"]*"' package.json 2>/dev/null | head -1 | sed 's/.*"test"\s*:\s*"//;s/"$//')
+  # Check if test script exists (portable — no jq, no grep -P; -P fails on Git Bash grep)
+  HAS_TEST=$(grep -oE '"test"[[:space:]]*:[[:space:]]*"[^"]*"' package.json 2>/dev/null | head -1 | sed 's/.*"test"[[:space:]]*:[[:space:]]*"//;s/"$//')
   if [ -n "$HAS_TEST" ] && ! echo "$HAS_TEST" | grep -q "no test specified"; then
     TEST_CMD="npm test -- --watchAll=false 2>&1"
   fi

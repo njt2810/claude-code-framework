@@ -5,6 +5,14 @@
 
 INPUT=$(cat 2>/dev/null)
 
+# === Dependency guard: without jq, degrade to a minimal statusline ===
+if ! command -v jq >/dev/null 2>&1; then
+  PROJECT="${PWD##*/}"
+  BRANCH=$(git branch --show-current 2>/dev/null)
+  echo "${PROJECT}${BRANCH:+  ·  ${BRANCH}}  ·  (install jq for full status)"
+  exit 0
+fi
+
 # === Stdin: cost + session duration ===
 SESSION_COST=$(echo "$INPUT" | jq -r '.cost.total_cost_usd // 0' 2>/dev/null || echo "0")
 SESSION_DURATION_MS=$(echo "$INPUT" | jq -r '.cost.total_duration_ms // 0' 2>/dev/null || echo "0")
@@ -47,17 +55,20 @@ fi
 # === Active timer ===
 TIMER_LINE=""
 if [ -f ".claude/state/timer.json" ]; then
-  T_ACTIVE=$(jq -r '.active // false' .claude/state/timer.json 2>/dev/null)
+  # One jq call for all six fields (statusline runs on every render)
+  IFS=$'\t' read -r T_ACTIVE T_CLIENT T_NOTE T_MODE T_STARTED T_ACC < <(
+    jq -r '[(.active // false), (.client // "?"), (.note // ""), (.mode // "running"), (.started_at // ""), (.accumulated_seconds // 0)] | @tsv' \
+      .claude/state/timer.json 2>/dev/null
+  )
   if [ "$T_ACTIVE" = "true" ]; then
-    T_CLIENT=$(jq -r '.client // "?"' .claude/state/timer.json 2>/dev/null)
-    T_NOTE=$(jq -r '.note // ""' .claude/state/timer.json 2>/dev/null)
-    T_MODE=$(jq -r '.mode // "running"' .claude/state/timer.json 2>/dev/null)
-    T_STARTED=$(jq -r '.started_at // ""' .claude/state/timer.json 2>/dev/null)
-    T_ACC=$(jq -r '.accumulated_seconds // 0' .claude/state/timer.json 2>/dev/null)
-
     if [ "$T_MODE" = "running" ] && [ -n "$T_STARTED" ]; then
-      T_START_EPOCH=$(date -d "$T_STARTED" +%s 2>/dev/null || echo "0")
-      T_ELAPSED=$(( $(date +%s) - T_START_EPOCH + T_ACC ))
+      T_START_EPOCH=$(date -d "$T_STARTED" +%s 2>/dev/null || echo "")
+      if [ -n "$T_START_EPOCH" ]; then
+        T_ELAPSED=$(( $(date +%s) - T_START_EPOCH + T_ACC ))
+      else
+        # Malformed timestamp — show accumulated time only, never epoch-0 garbage
+        T_ELAPSED=$T_ACC
+      fi
     else
       T_ELAPSED=$T_ACC
     fi
@@ -100,9 +111,9 @@ if command -v gh >/dev/null 2>&1 && [ -n "$BRANCH" ] && [ "$BRANCH" != "main" ] 
   if [ "$CACHE_AGE" -lt 60 ]; then
     PR_STATE=$(cat "$PR_CACHE" 2>/dev/null)
   else
-    PR_JSON=$(gh pr view --json number,state,statusCheckRollup 2>/dev/null)
+    PR_JSON=$(timeout 3 gh pr view --json number,state,statusCheckRollup 2>/dev/null)
     if [ -n "$PR_JSON" ]; then
-      PR_NUM=$(echo "$PR_JSON" | jq -r '.number')
+      PR_NUM=$(echo "$PR_JSON" | jq -r '.number' 2>/dev/null)
       PR_CHECKS=$(echo "$PR_JSON" | jq -r '[.statusCheckRollup[]?.conclusion] | if any(. == "FAILURE") then "failing CI" elif any(. == "PENDING") then "CI running" else "passing" end' 2>/dev/null || echo "open")
       PR_STATE="PR #${PR_NUM} ${PR_CHECKS}"
     fi

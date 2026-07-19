@@ -23,10 +23,12 @@ instead — it scans project state and prioritizes.
 Display this reference to the user:
 
 ```
-YOUR COMMAND REFERENCE — 51 skills, 6 always-on + 1 on-demand agents
+YOUR COMMAND REFERENCE — 52 skills, 6 always-on + 1 on-demand agents
 
 STARTING & RESUMING
   /init-project [stream]  Bootstrap a new or existing project
+  /upgrade-project        Bring an initialized project up to the installed
+                          framework (assess, archive old files, never delete)
                           Streams: personal, org1, org2, learning
                           Production scope auto-applied to org1/org2
   /resume                 Pick up where you left off (lifecycle-aware)
@@ -112,10 +114,10 @@ SESSION MANAGEMENT
   /rewind                 Undo to a previous checkpoint
   /help                   This reference
 
-WHAT HAPPENS AUTOMATICALLY (12 hooks + 10 rules)
+WHAT HAPPENS AUTOMATICALLY (hooks + 10 rules)
   Hooks:
   - SessionStart      Injects team identity, suggests /resume
-  - Identity reload   Re-injects identity after compaction
+  - Identity reload   Re-injects identity + context check after compaction
   - Bash guard        Warns about chained/long commands
   - Pre-compact       Backs up session state
   - Verify before stop  Blocks if tests are failing
@@ -124,8 +126,9 @@ WHAT HAPPENS AUTOMATICALLY (12 hooks + 10 rules)
   - Session summary   Tool use metrics at session end
   - Session logger    Records every tool use
   - Skill telemetry   Logs skill invocations for /curate
-  - Post-compact check  Verifies critical context survived
   - Identity check    Blocks stop if agent findings unattributed
+  - Statusline        Plain-English status bar (project, timer, git, PRs)
+  - Idle + session-end reminders (inline in settings.json)
 
   Always-loaded rules:
   - security          No secrets, .env, PII in logs
@@ -148,6 +151,7 @@ GRAPHIFY (codebase knowledge graph, if installed)
 
 QUICK DECISION TREE
   Starting a session?            → /resume then /recommend
+  Framework updated since init?  → /upgrade-project (archives, never deletes)
   What's next?                   → /recommend
   What's the project state?      → /status
   Want to build X?               → /feature add then /new-feature
@@ -173,7 +177,7 @@ organized by project phase.
 
 ## Verification
 
-- All 51 installed skills are listed
+- All 52 installed skills are listed
 - Each section grouping is logical
 - Quick decision tree at the bottom resolves common questions
 - Skills the user might not know about are surfaced

@@ -5,8 +5,8 @@
 echo ""
 echo "Lead Engineer reporting in."
 echo ""
-echo "Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent."
-echo "Delegate to them for reviews, audits, docs, testing, and knowledge management."
+echo "Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent, Compliance Officer + UI/UX Engineer (on-demand)."
+echo "Delegate to them for reviews, audits, docs, testing, compliance, and knowledge management."
 echo ""
 
 # Check for TEAM.md (project-local first, then global)

@@ -29,11 +29,11 @@ if not exist "%CLAUDE_HOME%\templates\vendor" mkdir "%CLAUDE_HOME%\templates\ven
 echo    Done.
 
 echo [2/9] Installing skills (slash commands)...
-for %%S in (init-project new-feature bug-fix wrap-up resume learn help document-all evaluate-repo status security-check constitution review-drift knowledge production-audit review-ui framework-check curate lock-skill unlock-skill pin-skill unpin-skill pr compliance-audit data-inventory legal-docs audit-logging-setup vendor-review compliance-status env-setup observability-setup deploy dr-plan incident release feature-flag auth-setup billing-setup email-setup triage feature recommend add-rule migration api-contract onboard-client careful guard freeze unfreeze timer) do (
+for %%S in (init-project upgrade-project new-feature bug-fix wrap-up resume learn help document-all evaluate-repo status security-check constitution review-drift knowledge production-audit review-ui framework-check curate lock-skill unlock-skill pin-skill unpin-skill pr compliance-audit data-inventory legal-docs audit-logging-setup vendor-review compliance-status env-setup observability-setup deploy dr-plan incident release feature-flag auth-setup billing-setup email-setup triage feature recommend add-rule migration api-contract onboard-client careful guard freeze unfreeze timer) do (
     if not exist "%CLAUDE_HOME%\skills\%%S" mkdir "%CLAUDE_HOME%\skills\%%S"
     copy /Y "skills\%%S\SKILL.md" "%CLAUDE_HOME%\skills\%%S\SKILL.md" >nul 2>&1
 )
-echo    51 skills installed.
+echo    52 skills installed.
 
 echo [3/9] Installing agents...
 copy /Y "agents\*.md" "%CLAUDE_HOME%\agents\" >nul 2>&1
@@ -46,7 +46,7 @@ echo    10 global rules installed.
 echo [5/9] Installing hooks...
 copy /Y "hooks\scripts\*.sh" "%CLAUDE_HOME%\hooks\scripts\" >nul 2>&1
 copy /Y "settings.json" "%CLAUDE_HOME%\settings.json" >nul 2>&1
-echo    12 hooks and settings installed.
+echo    Hook scripts and settings installed.
 
 echo [6/9] Installing utility scripts...
 copy /Y "hooks\scripts\timed-run.sh" "%CLAUDE_HOME%\scripts\timed-run.sh" >nul 2>&1
@@ -77,6 +77,7 @@ if exist "%CLAUDE_HOME%\CLAUDE.md" (
 )
 copy /Y "CLAUDE.md" "%CLAUDE_HOME%\CLAUDE.md" >nul 2>&1
 copy /Y "TEAM.md" "%CLAUDE_HOME%\TEAM.md" >nul 2>&1
+copy /Y "VERSION" "%CLAUDE_HOME%\VERSION" >nul 2>&1
 echo    Done.
 
 echo.
@@ -123,7 +124,7 @@ if exist "%CLAUDE_HOME%\hooks\scripts\verify-before-stop.sh" (
 )
 
 if exist "%CLAUDE_HOME%\skills\init-project\SKILL.md" (
-    echo    OK: 51 skills
+    echo    OK: 52 skills
 ) else (
     echo    MISSING: skills
     set /a ERRORS+=1
@@ -161,8 +162,9 @@ echo.
 echo   Location: %CLAUDE_HOME%
 echo.
 echo   Installed:
-echo     51 skills   (core)
-echo                   /init-project /new-feature /bug-fix /pr
+echo     52 skills   (core)
+echo                   /init-project /upgrade-project
+echo                   /new-feature /bug-fix /pr
 echo                   /wrap-up /resume /learn /help
 echo                   /document-all /evaluate-repo /status
 echo                   /security-check /constitution
@@ -197,12 +199,13 @@ echo                   config-protection fact-forcing
 echo                   pii-handling change-management
 echo                   secrets-management audit-everything
 echo                   safety-modes
-echo     12 hooks    - session-start bash-guard pre-compact
+echo     Hooks       - session-start bash-guard pre-compact
 echo                   verify-before-stop session-monitor
 echo                   session-summary loop-detector
 echo                   session-logger statusline
-echo                   skill-telemetry idle-detection
-echo                   session-end
+echo                   skill-telemetry
+echo                   (inline in settings.json: idle-detection, session-end)
+echo                   (manual utilities: timed-run, progress-monitor)
 echo     Templates   - wiki CI/CD rules legal
 echo                   security-policies compliance
 echo                   operations vendor

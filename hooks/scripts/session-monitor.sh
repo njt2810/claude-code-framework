@@ -1,8 +1,12 @@
 #!/bin/bash
 # Session Monitor — nudges for learning, compaction, and exit
 # Runs on Stop hook (after every Claude response)
+# Counter is keyed by session id (from stdin JSON) so it persists across invocations
 
-COUNTER_FILE="${TEMP:-/tmp}/claude-session-monitor-$$"
+INPUT=$(cat 2>/dev/null)
+SESSION_ID=$(echo "$INPUT" | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"session_id"[[:space:]]*:[[:space:]]*"//;s/"$//')
+
+COUNTER_FILE="${TEMP:-/tmp}/claude-session-monitor-${SESSION_ID:-default}"
 
 # Initialize
 if [ ! -f "$COUNTER_FILE" ]; then
@@ -38,7 +42,7 @@ fi
 if [ $((COUNT % 25)) -eq 0 ] && [ "$COUNT" -gt 10 ]; then
   echo ""
   echo "IDENTITY: You are the Lead Engineer."
-  echo "Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent."
+  echo "Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent, Compliance Officer + UI/UX Engineer (on-demand)."
   echo "Delegate to them — present their findings to the user in plain language."
 fi
 

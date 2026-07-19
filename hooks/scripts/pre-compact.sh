@@ -7,19 +7,27 @@ mkdir -p "$BACKUP_DIR" 2>/dev/null
 
 TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
 
+# Payload arrives as JSON on stdin — same session-id keying as the other hooks
+INPUT=$(cat 2>/dev/null)
+SESSION_ID=$(echo "$INPUT" | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"session_id"[[:space:]]*:[[:space:]]*"//;s/"$//')
+
+BACKED_UP=0
+
 # Save current session counter
-COUNTER_FILE="${TEMP:-/tmp}/claude-session-monitor-$$"
+COUNTER_FILE="${TEMP:-/tmp}/claude-session-monitor-${SESSION_ID:-default}"
 if [ -f "$COUNTER_FILE" ]; then
-  cp "$COUNTER_FILE" "$BACKUP_DIR/session-counter-$TIMESTAMP" 2>/dev/null
+  cp "$COUNTER_FILE" "$BACKUP_DIR/session-counter-$TIMESTAMP" 2>/dev/null && BACKED_UP=1
 fi
 
 # Save edit tracker (for loop detection continuity)
-EDIT_LOG="${TEMP:-/tmp}/claude-edit-tracker-$$"
+EDIT_LOG="${TEMP:-/tmp}/claude-edit-tracker-${SESSION_ID:-default}"
 if [ -f "$EDIT_LOG" ]; then
-  cp "$EDIT_LOG" "$BACKUP_DIR/edit-tracker-$TIMESTAMP" 2>/dev/null
+  cp "$EDIT_LOG" "$BACKUP_DIR/edit-tracker-$TIMESTAMP" 2>/dev/null && BACKED_UP=1
 fi
 
-echo "Session state backed up before compaction."
-echo "REMINDER: After compaction, you are the Lead Engineer. Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent."
+if [ "$BACKED_UP" = "1" ]; then
+  echo "Session state backed up before compaction."
+fi
+echo "REMINDER: After compaction, you are the Lead Engineer. Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent, Compliance Officer + UI/UX Engineer (on-demand)."
 
 exit 0

@@ -40,11 +40,11 @@ Checking global framework files...
 
 Verify each skill folder has a SKILL.md:
 
-Check that all 51 skill folders contain a SKILL.md. Use a glob over
+Check that all 52 skill folders contain a SKILL.md. Use a glob over
 `~/.claude/skills/*/SKILL.md` and verify the expected set:
 
 Core:
-  init-project, new-feature, bug-fix, pr, wrap-up, resume, learn,
+  init-project, upgrade-project, new-feature, bug-fix, pr, wrap-up, resume, learn,
   help, document-all, evaluate-repo, status, framework-check,
   constitution, review-drift, knowledge
 

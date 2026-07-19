@@ -31,9 +31,13 @@ If the log is empty or missing, report:
 "No telemetry data yet. Run some skills first, then /curate will have data to analyze.
  I can still check structural completeness — proceed? (yes/skip)"
 
-### Step 2 — Scan Skill Library
+### Step 2 — Scan Skill Library (both scopes)
 
-List every SKILL.md under `~/.claude/skills/`. For each:
+List every SKILL.md under BOTH:
+- `~/.claude/skills/` (global — framework + global learned skills)
+- `<project-root>/.claude/skills/` (project-local, including `learned/`) if run inside a project
+
+For each:
 - Read frontmatter (user_locked, pinned, description, name)
 - Compute days-since-last-use from telemetry (if available)
 - Compute invocation count over the last 90 days
@@ -60,6 +64,11 @@ Produce findings in these categories:
 **MISSING STRUCTURE** (skills without all 4 required sections):
 - Skill name, which sections are missing
 - Recommendation: backfill the missing sections
+
+**MISFILED SCOPE** (learned skills in `~/.claude/skills/learned/` whose content is
+project-specific — mentions project paths, a specific stack, service names, or client context):
+- Skill name, evidence of project-specificity, best-guess owning project
+- Recommendation: relocate to that project's `.claude/skills/learned/`, or retire if the project is done
 
 ### Step 4 — Present Report
 
@@ -89,6 +98,10 @@ MISSING STRUCTURE ({count}):
   1. /{name} — missing: {sections}
      Action? (backfill / skip)
 
+MISFILED SCOPE ({count}):
+  1. /{name} — global but project-specific ({evidence}); likely belongs to {project}
+     Action? (relocate / retire / keep-global / skip)
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
@@ -100,6 +113,8 @@ For EACH finding, wait for the user's individual decision. NEVER batch-approve.
 - **consolidate**: edit the kept skill to fold in unique value, move the other to skills-retired/
 - **edit-trigger**: open the SKILL.md and ask the user what to change in the description
 - **backfill**: add the missing sections with placeholder content for the user to fill
+- **relocate**: move the skill folder to the owning project's `.claude/skills/learned/`
+  (confirm the project path with the user first)
 - **keep/skip**: no action
 
 ### Step 6 — Log Actions

@@ -41,6 +41,7 @@ Read this carefully. When the user is unsure what to do, this table answers it.
 | When | Run | Why |
 |------|-----|-----|
 | Starting a new project | `/init-project [stream]` | Bootstraps everything — agents, rules, wiki, CI, etc. |
+| Framework improved since project was set up | `/upgrade-project` | Assess → report → archive old files → apply updates → /resume. Never deletes. |
 | After /init-project | `/constitution` | Document non-negotiable principles + constraints |
 | After /init-project on production | `/knowledge bootstrap` | Populate the second brain from project context |
 

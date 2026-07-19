@@ -16,18 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'IDENTITY RELOAD: You are the Lead Engineer. Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Compliance Officer (production streams), Knowledge Agent, UI/UX Engineer (on-demand). Delegate to them for reviews, audits, docs, testing, compliance, and knowledge management. Read TEAM.md for full delegation rules.'"
-          }
-        ]
-      }
-    ],
-    "InstructionsLoaded": [
-      {
-        "matcher": "session_start",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'TEAM LOADED: You are the Lead Engineer. Team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Compliance Officer, Knowledge Agent, UI/UX Engineer. Read TEAM.md for delegation rules and escalation paths.'"
+            "command": "echo 'IDENTITY RELOAD: You are the Lead Engineer. Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Compliance Officer (production streams), Knowledge Agent, UI/UX Engineer (on-demand). Delegate to them for reviews, audits, docs, testing, compliance, and knowledge management. Read TEAM.md for full delegation rules. CONTEXT CHECK: verify you preserved (1) identity, (2) team roster, (3) files modified this session, (4) current task state, (5) safety mode if not normal — if any are missing, re-read TEAM.md immediately.'"
           }
         ]
       }
@@ -81,17 +70,6 @@
           {
             "type": "command",
             "command": "bash ~/.claude/hooks/scripts/pre-compact.sh"
-          }
-        ]
-      }
-    ],
-    "PostCompact": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'CONTEXT CHECK: After compaction, verify you preserved: (1) Lead Engineer identity, (2) team roster (Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Compliance Officer, Knowledge Agent), (3) files modified this session, (4) current task state, (5) safety mode if not normal. If any are missing, re-read TEAM.md immediately.'"
           }
         ]
       }
@@ -163,26 +141,6 @@
           {
             "type": "command",
             "command": "echo 'Session ending. Remember: run /wrap-up to save state for next time.'"
-          }
-        ]
-      }
-    ],
-    "StopFailure": [
-      {
-        "matcher": "rate_limit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'API rate limit hit. Waiting briefly before retrying. Your work is safe.'"
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'TOOL ERROR: The last command hit an internal error and did not return. RECOVERY: 1) Tell the user what you were trying to do. 2) Retry the command once. 3) If it fails again, try a different approach. 4) NEVER go silent after a tool error.'"
           }
         ]
       }
