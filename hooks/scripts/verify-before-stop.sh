@@ -7,6 +7,16 @@
 INPUT=$(cat 2>/dev/null)
 SESSION_ID=$(echo "$INPUT" | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"session_id"[[:space:]]*:[[:space:]]*"//;s/"$//')
 
+# Explicit handoff: a skill can request an unconditional stop — e.g. /bug-fix
+# Step 6, handing control to the user after 2 failed attempts — by dropping
+# this marker before ending its turn. That stop is intentional, not a bug
+# being left unverified by accident, so it bypasses the test check entirely.
+HOLD_MARKER="${TEMP:-/tmp}/claude-bugfix-allow-stop"
+if [ -f "$HOLD_MARKER" ]; then
+  rm -f "$HOLD_MARKER"
+  exit 0
+fi
+
 # Prevent infinite verification loops using a counter file
 VERIFY_COUNTER="${TEMP:-/tmp}/claude-verify-counter-${SESSION_ID:-default}"
 if [ ! -f "$VERIFY_COUNTER" ]; then

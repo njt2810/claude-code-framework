@@ -49,6 +49,32 @@ EXTRACT=$(grep -oE '"test"[[:space:]]*:[[:space:]]*"[^"]*"' package.json | head 
 rm -f package.json
 ! grep -q 'grep -oP' "$HOOKS/verify-before-stop.sh"; check "no grep -P anywhere in verify-before-stop" $?
 
+echo "== verify-before-stop: bug-fix handoff marker =="
+MARKER_DIR=$(mktemp -d)
+cd "$MARKER_DIR"
+git init -q
+git config user.email "test@test.com"
+git config user.name "test"
+echo "console.log('v1')" > app.js
+git add app.js
+git commit -qm "init"
+echo '{"scripts": {"test": "exit 1"}}' > package.json
+echo "console.log('v2')" > app.js
+
+echo "{\"session_id\":\"$SID\"}" | bash "$HOOKS/verify-before-stop.sh" >/dev/null 2>&1
+WITHOUT=$?
+[ "$WITHOUT" = "2" ]; check "blocks stop when tests fail and no marker present (got exit $WITHOUT)" $?
+
+touch "$TMPDIR_BASE/claude-bugfix-allow-stop"
+echo "{\"session_id\":\"$SID\"}" | bash "$HOOKS/verify-before-stop.sh" >/dev/null 2>&1
+WITH=$?
+[ "$WITH" = "0" ]; check "marker overrides the block and allows stop (got exit $WITH)" $?
+
+[ ! -f "$TMPDIR_BASE/claude-bugfix-allow-stop" ]; check "marker is consumed (removed) after use" $?
+
+cd "$WORKDIR"
+rm -rf "$MARKER_DIR"
+
 echo "== pre-compact =="
 echo "{\"session_id\":\"$SID\"}" | bash "$HOOKS/pre-compact.sh" >/dev/null; check "exits 0" $?
 OUT=$(echo "{\"session_id\":\"$SID-fresh\"}" | bash "$HOOKS/pre-compact.sh")
