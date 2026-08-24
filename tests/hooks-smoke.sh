@@ -51,7 +51,7 @@ rm -f package.json
 
 echo "== verify-before-stop: bug-fix handoff marker =="
 MARKER_DIR=$(mktemp -d)
-cd "$MARKER_DIR"
+cd "$MARKER_DIR" || exit 1
 git init -q
 git config user.email "test@test.com"
 git config user.name "test"
@@ -72,7 +72,7 @@ WITH=$?
 
 [ ! -f "$TMPDIR_BASE/claude-bugfix-allow-stop" ]; check "marker is consumed (removed) after use" $?
 
-cd "$WORKDIR"
+cd "$WORKDIR" || exit 1
 rm -rf "$MARKER_DIR"
 
 echo "== pre-compact =="
