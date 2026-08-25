@@ -229,7 +229,7 @@ After PR is approved and CI green:
 - Building before the plan is approved wastes time if the user wants a different approach
 - Not running the full test suite after each slice lets regressions accumulate
 - Forgetting to delegate to Security Auditor when the feature handles user input or auth
-- Committing to main directly bypasses change management — production streams require PR workflow
+- Committing to main directly bypasses change management — production-tier projects require PR workflow
 - Force-pushing to a feature branch with an open PR is OK during review; never force-push to main
 
 ## Verification

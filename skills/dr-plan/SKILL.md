@@ -20,9 +20,11 @@ documented DR plan AND evidence of restore tests.
 
 ## Procedure
 
-## Step 1 — Stream Check
+## Step 1 — Production-Tier Check
 
-Read CLAUDE.md to confirm production stream. If learning: STOP.
+Read the project's own CLAUDE.md for a `Production-tier:` line (v2, written
+by `/adopt`) — falls back to the old `Stream:`/`.claude/stream` detection
+for a v1 project not yet re-adopted. If not production-tier: STOP.
 
 ## Step 2 — Identify Recovery Targets
 

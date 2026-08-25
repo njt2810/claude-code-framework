@@ -115,7 +115,7 @@ Wire audit log helper (from `/audit-logging-setup`) to fire on:
 - session.created / expired
 
 If the helper doesn't exist yet: STOP and suggest running
-`/audit-logging-setup` first for production streams.
+`/audit-logging-setup` first for production-tier projects.
 
 ## Step 6 — Test Auth Flow
 

@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'IDENTITY RELOAD: Framework active. Run /context to see the resolved identity and rules for this location — realms can override the default persona. Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Compliance Officer (production streams), Knowledge Agent, UI/UX Engineer (on-demand). Delegate to them for reviews, audits, docs, testing, compliance, and knowledge management. Read TEAM.md for full delegation rules. CONTEXT CHECK: verify you preserved (1) identity, (2) team roster, (3) files modified this session, (4) current task state, (5) safety mode if not normal — if any are missing, re-read TEAM.md immediately.'"
+            "command": "echo 'IDENTITY RELOAD: Framework active. Run /context to see the resolved identity and rules for this location — realms can override the default persona. Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Compliance Officer (production-tier projects), Knowledge Agent, UI/UX Engineer (on-demand). Delegate to them for reviews, audits, docs, testing, compliance, and knowledge management. Read TEAM.md for full delegation rules. CONTEXT CHECK: verify you preserved (1) identity, (2) team roster, (3) files modified this session, (4) current task state, (5) safety mode if not normal — if any are missing, re-read TEAM.md immediately.'"
           }
         ]
       }

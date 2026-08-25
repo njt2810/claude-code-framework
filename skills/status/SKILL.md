@@ -81,7 +81,7 @@ Display:
     {id} {priority} {title}  ({status})
     {id} {priority} {title}  ({status})
 
-  (For production streams)
+  (For production-tier projects)
   🛡 Compliance
     Last audit:     {N days ago}
     Open gaps:      {N} CRITICAL, {N} HIGH
@@ -102,11 +102,11 @@ After displaying, if there are notable items, suggest:
 - Don't fabricate data — if wiki/PROJECT_STATUS.md doesn't exist, say so
 - Don't skip the feature pipeline section — that's the single most useful add
 - Test count should come from actually running tests OR last known good count, with timestamp
-- For production streams, omitting compliance state leaves blind spots
+- For production-tier projects, omitting compliance state leaves blind spots
 
 ## Verification
 
 - All fields filled with real data from the project (no placeholders)
 - Feature pipeline counts reflect actual files in wiki/features/
 - Safety mode is current (not stale)
-- For production streams, compliance summary is present
+- For production-tier projects, compliance summary is present

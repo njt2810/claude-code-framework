@@ -20,10 +20,12 @@ and PDPA accountability. Distinct from observability (errors, metrics).
 
 ## Procedure
 
-## Step 1 — Stream Check
+## Step 1 — Production-Tier Check
 
-Read CLAUDE.md to confirm production stream.
-If learning: STOP. Audit logging is for production.
+Read the project's own CLAUDE.md for a `Production-tier:` line (v2, written
+by `/adopt`) — falls back to the old `Stream:`/`.claude/stream` detection
+for a v1 project not yet re-adopted.
+If not production-tier: STOP. Audit logging is for production.
 
 ## Step 2 — Detect Stack
 

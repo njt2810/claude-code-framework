@@ -21,9 +21,11 @@ operational visibility.
 
 ## Procedure
 
-## Step 1 — Stream Check & Existing State
+## Step 1 — Production-Tier Check & Existing State
 
-Read CLAUDE.md to confirm production stream.
+Read the project's own CLAUDE.md for a `Production-tier:` line (v2, written
+by `/adopt`) — falls back to the old `Stream:`/`.claude/stream` detection
+for a v1 project not yet re-adopted.
 Detect what's already installed:
 - Sentry, Rollbar, Bugsnag (error tracking)
 - Datadog, New Relic, Grafana (metrics)
