@@ -17,7 +17,7 @@ pinned: true
 
 When ready to cut a versioned release with changelog. For projects with
 external consumers (clients, API users, internal teams) where version
-visibility matters. Optional for personal/learning streams.
+visibility matters. Optional for non-production-tier projects.
 
 ## Procedure
 

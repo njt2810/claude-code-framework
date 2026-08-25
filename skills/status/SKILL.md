@@ -45,7 +45,7 @@ Not for resuming work or starting a feature.
 3. Check `wiki/logs/` for the latest session log
 4. Count files in `.claude/skills/learned/`
 5. Read `graphify-out/GRAPH_REPORT.md` for codebase size if available
-6. For production streams: read `wiki/compliance/gaps.md` for compliance state
+6. For production-tier projects: read `wiki/compliance/gaps.md` for compliance state
 7. Read `.claude/state/mode.json` for safety mode
 
 Display:
@@ -53,7 +53,7 @@ Display:
 ```
 {Project Name} — Status
 
-  Stream:           {personal/org1/org2/learning}
+  Realm:            {realm-key, or "one-off — not part of a realm"}
   Production scope: {ON/OFF}
   Safety mode:      {normal/careful/guard/freeze}
   Stack:            {language, framework}

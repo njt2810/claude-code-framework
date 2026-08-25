@@ -63,9 +63,11 @@ Scan the project and classify every framework-owned file:
   (leftover from a removed feature or an old experiment)
 - **PROTECTED** — on the never-touch list (report count only)
 
-Also detect the stream (`.claude/stream` or CLAUDE.md) — production streams
-(org1/org2) get the full template set; personal/learning stay minimal, same
-rules as /init-project.
+Also detect the realm (`~/.claude/realms.json` prefix match against cwd,
+same resolution `/adopt` uses) and production-tier status (the realm's
+`CLAUDE.md` declaration, or a per-project self-declaration) — production-tier
+projects get the full template set; others stay minimal, same rules as
+`/adopt`.
 
 ## Step 3 — Present the Upgrade Plan (wait for approval)
 

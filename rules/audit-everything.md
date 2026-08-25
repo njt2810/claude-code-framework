@@ -1,6 +1,8 @@
-# Audit Everything — Always Loaded (Production Streams Only)
+# Audit Everything — Always Loaded (Production-Tier Projects Only)
 
-For production streams (org1, org2, personal-with-production-flag), every
+For **production-tier** projects — status comes from the project's own realm
+(declared in the realm's `CLAUDE.md`, see the v2 Realm System) or a
+per-project self-declaration via `/adopt`, never hardcoded here — every
 state-changing action must be auditable. SOC 2 evidence depends on this.
 
 ## What Must Be Audited
@@ -83,7 +85,7 @@ await audit({
 
 ## When You're Coding a State Change
 
-For production streams, ask:
+For production-tier projects, ask:
 1. Is this a state change that affects accountability? (yes → must audit)
 2. Do I have the actor (user_id or "system")?
 3. Do I have the resource being changed?

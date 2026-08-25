@@ -55,8 +55,6 @@ Show the inbox — unread first, then the last 5 seen. If empty:
 
 - **/resume** announces unread notes FIRST — before the session summary — then
   marks each `[x]` with the seen date.
-- **Mission Control dashboard** (when built) reads and writes the same file —
-  one inbox, two entry points.
 
 ## Pitfalls
 

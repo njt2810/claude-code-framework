@@ -202,7 +202,7 @@ If the user picks one, invoke the relevant skill/workflow.
 - Surfacing 20 recommendations dilutes signal — keep to top 5-7
 - Recommending tasks without reasoning — user can't learn the pattern
 - Not differentiating blockers from nice-to-haves — leads to decision paralysis
-- Ignoring stream context (recommending production skills for learning stream) — noise
+- Ignoring production-tier context (recommending production-only skills for a non-production-tier project) — noise
 
 ## Verification
 

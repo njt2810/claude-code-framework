@@ -38,10 +38,13 @@ if [ $((COUNT % 30)) -eq 0 ] && [ "$COUNT" -gt 20 ]; then
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 fi
 
-# Identity reinforcement every ~25 turns
+# Identity reinforcement every ~25 turns. Does NOT hardcode a persona name —
+# a realm-root CLAUDE.md can override identity (v2 Realm System), and this
+# hook has no way to know which realm (if any) governs the cwd it fires in.
+# Point at /context instead, which resolves the actual active identity live.
 if [ $((COUNT % 25)) -eq 0 ] && [ "$COUNT" -gt 10 ]; then
   echo ""
-  echo "IDENTITY: You are the Lead Engineer."
+  echo "IDENTITY CHECK: re-verify active identity via /context if unsure — realms can override it."
   echo "Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent, Compliance Officer + UI/UX Engineer (on-demand)."
   echo "Delegate to them — present their findings to the user in plain language."
 fi

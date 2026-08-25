@@ -105,7 +105,7 @@ For modifications, suggest the right skill:
 
 - Treating this as a replacement for `/compliance-audit` — it's a dashboard, not an audit
 - Forgetting to refresh evidence after collecting it — the dashboard will show false staleness
-- Running on a learning stream — meaningless, returns nothing useful
+- Running on a non-production-tier project — meaningless, returns nothing useful
 - Not running it often enough — quarterly is too slow for production. Weekly or per-session is right.
 
 ## Verification

@@ -1,8 +1,74 @@
 # Changelog
 
-All notable framework changes, newest first. The version is the `VERSION` file
-(date-based). `/upgrade-project` uses this to explain what an older project
-gains by upgrading.
+All notable framework changes, newest first. The version is the `VERSION` file.
+Releases before 2.0.0 used a date-stamp convention; from 2.0.0 onward the
+project uses semver — this release is a real architecture break (the v2 Realm
+System), not a routine update, and semver signals that unambiguously.
+`/upgrade-project` uses this file to explain what an older project gains by
+upgrading.
+
+## 2.0.0 — The Realm System
+
+**Breaking changes**
+
+- **New: the Realm System.** Define a `<realm-root>/AGENTS.md` +
+  `<realm-root>/CLAUDE.md` pair anywhere in your folder tree, register it in
+  `~/.claude/realms.json` (gitignored, ships as `realms.json.example`), and
+  every project nested under that root automatically inherits its identity
+  and rules via Claude Code's native `CLAUDE.md` ancestor-walk — no manual
+  pointing, no per-project copies. See the README's "The Realm System"
+  section and "Migrating from v1" for the upgrade path.
+- **`/adopt` replaces `/init-project`.** Same functional coverage (GitHub repo
+  creation, security audit, CI/CD setup, and — for production-tier realms —
+  branch protection, compliance/legal doc scaffolding, audit-logging stubs,
+  environment separation), but realm-aware instead of stream-hardcoded, and
+  it no longer copies agent definitions or `TEAM.md` into the project — the
+  global `~/.claude/agents/` and the realm-root `CLAUDE.md` already cover
+  every project automatically, and copying them was the exact mechanism that
+  let files silently drift from their source in v1. `/init-project` still
+  works as a thin alias; the `[stream]` argument is now ignored.
+- **New: `/context`.** Shows the fully resolved `CLAUDE.md` ancestor chain for
+  the current directory and flags conflicting identity claims — modeled on
+  Gemini CLI's `/memory show`. Two hooks now depend on it: Session Start and
+  Identity Reload no longer hardcode a persona name (previously always
+  "Lead Engineer," which would have silently fought any realm-level identity
+  override) — they point at `/context` instead. The Identity Check stop-hook
+  now checks that subagent findings are attributed to an agent, without
+  requiring a specific persona name.
+- **`/curate` extended with a wiki/log/decision staleness lint.** Reuses the
+  `review_date` frontmatter pattern; flags past-due `review_date` fields and
+  stale wiki/decision files with no recent activity. Same propose-only,
+  no-batch-approval discipline as the rest of `/curate`.
+- **`/learn` and skill graduation gain a REALM tier.** Learned skills can now
+  live at `<realm-root>\.realm-skills\` — between project-local and global —
+  synced into a project's `.claude/skills/` by `/adopt`, never silently.
+- **Removed: the Mission Control dashboard spec** (`docs/DASHBOARD-SPEC.md`,
+  `docs/mockups/`). It was never built, and sat in tension with the
+  framework's own native-first design principle (a bespoke registry +
+  collector server + API + UI, where existing tools would do). Deleted, not
+  archived — the git history still has it if it's ever needed again. The
+  underlying idea isn't dead — it's being pursued as a project-specific
+  initiative outside the framework's scope.
+- **Delegation softened.** "Always delegate to at least one specialist before
+  shipping" is now a default, skippable for small/low-risk changes (typo
+  fixes, single-line tweaks, comment-only edits). Non-trivial changes still
+  delegate by default. In line with Anthropic's own published guidance
+  against unconditional agentic overhead on every task regardless of size.
+- **Genericized:** `change-management.md`, `audit-everything.md`, and
+  `compliance-officer.md` no longer hardcode example stream names
+  (`org1`, `org2`, `personal-with-production-flag`). Production-tier status
+  now comes from a realm's own `CLAUDE.md` declaration, or a per-project
+  self-declaration via `/adopt` — never baked into the framework itself.
+  Several other skills (`status`, `upgrade-project`, `wrap-up`,
+  `compliance-status`, `recommend`, `release`, and the `PROJECT_STATUS.md`
+  template) had the same hardcoded stream-name pattern and were updated for
+  consistency. Cost/time tracking (previously gated on stream name) is now a
+  simple per-project opt-in, asked once on first `/wrap-up`.
+
+**Migration:** see the README's "Migrating from v1" section. Existing
+projects keep working unchanged; realm adoption is opt-in and incremental —
+`/adopt` still works as a one-off project bootstrap with no `realms.json` at
+all.
 
 ## 2026.07.19
 

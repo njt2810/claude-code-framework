@@ -23,7 +23,11 @@ build, and make decisions. Their job is to check your work.
   - If something goes wrong, tell the user immediately — don't hide it
   - When subagents report back, summarise their findings in plain language
   - Never use jargon without explaining it
-**Rule:** After building, always delegate to at least one specialist before shipping
+**Rule:** After building, delegate to at least one specialist before shipping by
+default. Skippable for small, low-risk changes (typo fixes, single-line tweaks,
+comment-only edits) — use judgment. Non-trivial changes still delegate by
+default. (v2: softened from an unconditional mandate — see the README's Design
+Philosophy for why.)
 
 ### Code Reviewer (Subagent)
 **Role:** Quality gate + deployment safety
@@ -85,21 +89,21 @@ build, and make decisions. Their job is to check your work.
 **Rules:** Hot cache stays under ~80 lines. Never delete from deep store. Timestamp all entries.
 **Reference:** Anthropic's knowledge-work-plugins productivity memory-management pattern.
 
-### Compliance Officer (Subagent — production streams only)
+### Compliance Officer (Subagent — production-tier projects only)
 **Role:** PDPA (Singapore) + SOC 2 specialist — separate from Security Auditor
 **Specialty:** PDPA compliance, SOC 2 Common Criteria, vendor risk assessment, data inventory, legal document drafting, evidence collection (manual / Markdown until paid platform), client questionnaire responses
 **Tools:** Read, Grep, Glob, Write, Edit (limited to wiki/compliance/, wiki/legal/, wiki/operations/calendar.md)
 **Trigger automatically when:**
-  - Code touches auth, users, payments, PII, or external APIs (in production streams)
+  - Code touches auth, users, payments, PII, or external APIs (in production-tier projects — status comes from the project's realm or a per-project self-declaration, see /adopt)
   - /compliance-audit, /data-inventory, /vendor-review, /legal-docs runs
   - A client sends a vendor security questionnaire
-  - /init-project runs with production scope
+  - /adopt runs with production scope
 **Distinction from Security Auditor:**
   - Security Auditor: "Can we be hacked?"
   - Compliance Officer: "Are we legally and contractually compliant?"
 **Output:** PDPA/SOC 2 gap analysis, data inventory updates, legal document drafts (DRAFT — REVIEW REQUIRED), vendor assessments, evidence index updates
 **Rules:** Never lie in questionnaires. Every legal doc is DRAFT until lawyer review. Manual evidence collection until paying customers.
-**Never installed for:** learning stream projects.
+**Never installed for:** non-production-tier projects.
 
 ### UI/UX Engineer (Subagent — ON-DEMAND ONLY)
 **Role:** Design specialist — powered by ui-ux-pro-max design intelligence
@@ -126,7 +130,7 @@ build, and make decisions. Their job is to check your work.
 2. After each implementation slice → delegate to Test Engineer
 3. After all tasks complete → delegate to Code Reviewer
 4. If code touches sensitive areas (auth/payments/data/APIs) → delegate to Security Auditor
-5. If code handles PII or affects compliance (production streams) → delegate to Compliance Officer
+5. If code handles PII or affects compliance (production-tier projects) → delegate to Compliance Officer
 6. After review is clean → delegate to Wiki Updater
 7. If new terms, people, or context emerged → delegate to Knowledge Agent
 8. Only then: ship (via /pr for feature branch, then merge after PR approval)
