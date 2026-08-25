@@ -33,22 +33,36 @@ Review what just happened and answer:
 4. **What would you do differently next time?** (improvements)
 5. **Is this task likely to recur?** (yes/no and why)
 
-## Step 2 — Decide the Scope (project vs global)
+## Step 2 — Decide the Scope (project vs realm vs global)
 
 **Default scope is PROJECT-LOCAL**: `<project-root>/.claude/skills/learned/` —
 the `.claude` folder INSIDE the current project, NEVER `~/.claude/skills/`.
 
-A skill goes GLOBAL (`~/.claude/skills/learned/`) only if BOTH are true:
-1. The procedure has nothing project-specific in it (no project paths, stack
-   details, service names, or client context)
-2. The user explicitly confirms it is useful across all their projects
+A skill goes REALM (`<realm-root>/.realm-skills/`, v2) only if BOTH are true:
+1. The procedure is specific to how this realm's projects work (a shared
+   convention, service, or pattern across the realm) but NOT specific to
+   this one project alone
+2. The current project is resolved under a realm (check `~/.claude/
+   realms.json`, same resolution `/adopt` uses) — there's no realm tier to
+   promote into otherwise
 
-When in doubt, project-local. A project skill leaking global clutters every
-other project; a global-worthy skill stuck in one project costs nothing.
+A skill goes GLOBAL (`~/.claude/skills/learned/`) only if BOTH are true:
+1. The procedure has nothing project- or realm-specific in it (no project
+   paths, stack details, service names, client context, or realm-specific
+   conventions)
+2. The user explicitly confirms it is useful across all their projects,
+   regardless of realm
+
+When in doubt, stay at the narrowest tier. A project skill leaking to realm
+or global clutters every other project/realm; a global-worthy skill stuck
+narrower costs nothing. This is the same reasoning the framework's own B1
+backlog cleanup applied when relocating skills that had drifted global by
+default with no realm concept to place them in at the time.
 
 ## Step 3 — Check for Existing Skill
 
-Search the PROJECT's `.claude/skills/learned/` first, then `~/.claude/skills/learned/`:
+Search the PROJECT's `.claude/skills/learned/` first, then (if a realm
+resolved) `<realm-root>/.realm-skills/`, then `~/.claude/skills/learned/`:
 - If a related skill exists → propose UPDATING it with new learnings (in its current location)
 - If nothing similar exists → propose CREATING a new skill
 
@@ -61,7 +75,7 @@ I'd like to {create / update} a learned skill:
 
 Name: {descriptive-name}
 Description: {what this skill does, when to use it}
-Scope: {PROJECT (this project only) / GLOBAL (all projects)} — {one-line reason}
+Scope: {PROJECT (this project only) / REALM (all {realm-key} projects) / GLOBAL (all projects)} — {one-line reason}
 
 Procedure:
   1. {step from what worked}
@@ -75,7 +89,8 @@ Verified on:
   - {today's date}: {brief outcome description}
 
 Save to {project-root}/.claude/skills/learned/{name}/SKILL.md?
-(or ~/.claude/skills/learned/{name}/SKILL.md if scope is GLOBAL)
+(or <realm-root>/.realm-skills/{name}/SKILL.md if scope is REALM,
+ or ~/.claude/skills/learned/{name}/SKILL.md if scope is GLOBAL)
 ```
 
 Wait for approval. Do NOT create or modify files without explicit "yes."
@@ -112,10 +127,20 @@ All TEAM.md modifications follow the skill-evolution protocol — approval requi
 
 ## Step 8 — Cross-Project Check
 
-If a PROJECT-scoped skill later seems broadly useful:
-"This learning could be useful across other projects.
- Want me to promote it to the global learned folder (~/.claude/skills/learned/)?"
-Moving scope is an explicit user decision — never silent.
+If a PROJECT-scoped skill later seems broadly useful within its realm:
+"This learning could be useful across other {realm-key} projects.
+ Want me to promote it to the realm's skill folder (<realm-root>/.realm-skills/)?"
+
+If a PROJECT- or REALM-scoped skill later seems useful everywhere, regardless
+of realm:
+"This learning could be useful across all your projects, not just
+ {realm-key}. Want me to promote it to the global learned folder
+ (~/.claude/skills/learned/)?"
+
+Moving scope is always an explicit user decision — never silent, and never
+skips a tier without asking (a project skill can go straight to global if
+that's genuinely where it belongs, but say so rather than defaulting past
+realm silently).
 
 ## For Skill Updates (existing skill)
 
@@ -137,8 +162,9 @@ Approve this update? (yes/no)
 
 ## Pitfalls
 
-- Saving a project-specific skill to the GLOBAL folder — this clutters every other
-  project over time. Default is always the project's own .claude/skills/learned/
+- Saving a project-specific skill to the REALM or GLOBAL folder — this clutters
+  every other project (in the realm, or everywhere) over time. Default is
+  always the project's own .claude/skills/learned/
 - Creating a skill that's too specific to one project — check if it's broadly useful
 - Not populating Pitfalls and Verification sections — every new skill needs all 4 sections
 - Modifying TEAM.md without approval — always follow skill-evolution protocol

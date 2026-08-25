@@ -27,21 +27,44 @@ else
   SESSION_FMT=""
 fi
 
-# === Project + stream ===
+# === Project + realm/production-tier (v2) ===
 PROJECT=$(basename "$(pwd)" 2>/dev/null || echo "unknown")
-STREAM=""
-if [ -f ".claude/stream" ]; then
-  STREAM=$(cat .claude/stream 2>/dev/null | tr -d '[:space:]')
-elif [ -f "CLAUDE.md" ]; then
-  STREAM=$(grep -i "^stream:" CLAUDE.md 2>/dev/null | head -1 | awk -F: '{print $2}' | tr -d '[:space:]')
+STREAM_LABEL=""
+IS_PRODUCTION=0
+
+# v2: /adopt writes a deterministic "Production-tier: yes/no" line into the
+# project's own CLAUDE.md, resolved once from the realm's declaration or a
+# self-declaration — read that directly, don't re-resolve realms.json here.
+REALM_KEY=""
+PROD_LINE=""
+if [ -f "CLAUDE.md" ]; then
+  REALM_KEY=$(grep -i "^realm:" CLAUDE.md 2>/dev/null | head -1 | awk -F: '{print $2}' | awk '{print $1}' | tr -d '[:space:]')
+  PROD_LINE=$(grep -i "^production-tier:" CLAUDE.md 2>/dev/null | head -1 | awk -F: '{print $2}' | awk '{print $1}' | tr -d '[:space:],' | tr '[:upper:]' '[:lower:]')
 fi
 
-case "$STREAM" in
-  org1|org2)   STREAM_LABEL="production project ($STREAM)"; IS_PRODUCTION=1 ;;
-  personal)    STREAM_LABEL="personal project"; IS_PRODUCTION=0 ;;
-  learning)    STREAM_LABEL="learning project"; IS_PRODUCTION=0 ;;
-  *)           STREAM_LABEL=""; IS_PRODUCTION=0 ;;
-esac
+if [ -n "$PROD_LINE" ]; then
+  if [ "$PROD_LINE" = "yes" ]; then
+    IS_PRODUCTION=1
+    STREAM_LABEL="production project${REALM_KEY:+ (realm: $REALM_KEY)}"
+  else
+    STREAM_LABEL="${REALM_KEY:+realm: $REALM_KEY}"
+  fi
+elif [ -f ".claude/stream" ] || grep -qi "^stream:" CLAUDE.md 2>/dev/null; then
+  # v1 fallback: project hasn't been re-adopted under v2 yet, still has the
+  # old stream marker — honor it rather than silently losing the signal.
+  LEGACY_STREAM=""
+  if [ -f ".claude/stream" ]; then
+    LEGACY_STREAM=$(cat .claude/stream 2>/dev/null | tr -d '[:space:]')
+  else
+    LEGACY_STREAM=$(grep -i "^stream:" CLAUDE.md 2>/dev/null | head -1 | awk -F: '{print $2}' | tr -d '[:space:]')
+  fi
+  case "$LEGACY_STREAM" in
+    org1|org2)   STREAM_LABEL="production project ($LEGACY_STREAM)"; IS_PRODUCTION=1 ;;
+    personal)    STREAM_LABEL="personal project" ;;
+    learning)    STREAM_LABEL="learning project" ;;
+    *)           STREAM_LABEL="" ;;
+  esac
+fi
 
 # === Safety mode ===
 MODE=""

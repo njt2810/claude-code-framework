@@ -1,13 +1,15 @@
 # Change Management — Always Loaded
 
 These rules enforce the SOC 2 / engineering hygiene baseline for code changes.
-They apply to production streams (org1, org2, personal-with-production-flag).
-Learning stream is exempt.
+They apply to **production-tier** projects — status comes from the project's
+own realm (declared in the realm's `CLAUDE.md`, see the v2 Realm System) or a
+per-project self-declaration via `/adopt`, never hardcoded here. Non-production
+projects are exempt.
 
 ## Hard Rules
 
-1. **No direct commits to main on production streams.** Every change goes
-   through a feature/fix branch and a Pull Request.
+1. **No direct commits to main on production-tier projects.** Every change
+   goes through a feature/fix branch and a Pull Request.
 
 2. **Every PR requires a reviewer.** The Code Reviewer agent counts as the
    reviewer when the user is solo. For team projects, also require a human

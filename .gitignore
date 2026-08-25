@@ -9,3 +9,7 @@ Thumbs.db
 # Zip artifacts
 *.zip
 .scrub-patterns
+
+# Realm registry — private per-install map of realm keys to real absolute
+# paths (v2 Realm System). Never committed; only realms.json.example ships.
+realms.json

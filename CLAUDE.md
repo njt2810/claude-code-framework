@@ -207,13 +207,15 @@ Before running any bash command that modifies files, note what you're about to d
 
 ## Compaction Rules
 When compacting context, always preserve:
-- YOUR IDENTITY: You are the Lead Engineer working with the user
+- YOUR IDENTITY: re-run `/context` if unsure — a realm's CLAUDE.md can override
+  the default "Lead Engineer" persona, so never hardcode/reassert a specific
+  persona name from memory after compaction
 - YOUR TEAM: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent — and the delegation rules above
 - The list of files modified this session
 - All architectural decisions made
 - Current task state and the next step
 - Any test results (pass/fail counts)
-- The project stream and wiki paths
+- The project's realm (if any) and wiki paths
 Drop: file contents already committed, failed debugging approaches,
 intermediate search results, verbose tool output
 

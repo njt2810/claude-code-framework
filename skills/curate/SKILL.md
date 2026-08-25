@@ -19,6 +19,10 @@ allowed-tools:
 Monthly skill library maintenance. Or when the library feels cluttered.
 Or when /learn has been adding skills frequently and a review is due.
 
+Also covers wiki/log/decision staleness (v2) — the same "propose findings,
+never auto-execute" discipline applied to a different kind of drift: content
+that was true once and never got flagged as outdated.
+
 ## Procedure
 
 ### Step 1 — Read Telemetry
@@ -42,6 +46,25 @@ For each:
 - Compute invocation count over the last 90 days
 - Check which of the 4 required sections exist (When to Use, Procedure, Pitfalls, Verification)
 - Note the creation date (from git log or file timestamp)
+
+### Step 2b — Scan Wiki/Log/Decision Content for Staleness (v2)
+
+No external standard defines this — reuses the `review_date` frontmatter
+pattern already proven in production (the ISO 27001/SOC 2 compliance
+tracker). Scan `wiki/` (project-local, if run inside a project) and any
+`memory/` knowledge-base content:
+
+- **Files with a `review_date:` frontmatter field**: flag if `review_date`
+  is in the past.
+- **Wiki/log/decision files WITHOUT a `review_date:` field** (e.g.
+  `wiki/decisions/*.md`, `wiki/runbooks/*.md`, `wiki/architecture.md`,
+  `wiki/conventions.md`): flag if the file's mtime is older than a threshold
+  (default 90 days) AND `git log -1 --format=%ct -- {file}` shows no commit
+  touching it more recently than that threshold either (checking both
+  avoids flagging a file that's genuinely current but was last touched by a
+  non-mtime-preserving operation like a clone or restore).
+- Skip anything under `wiki/logs/` (session logs are expected to age — not
+  a maintenance concern) and anything with `pinned: true` in frontmatter.
 
 ### Step 3 — Generate Findings
 
@@ -68,6 +91,11 @@ Produce findings in these categories:
 project-specific — mentions project paths, a specific stack, service names, or client context):
 - Skill name, evidence of project-specificity, best-guess owning project
 - Recommendation: relocate to that project's `.claude/skills/learned/`, or retire if the project is done
+
+**STALE CONTENT** (v2 — wiki/log/decision files past due per Step 2b):
+- File path, reason (`review_date` past due by N days, or mtime + no recent
+  commit past the 90-day threshold)
+- Recommendation: review and either update the content or bump `review_date`
 
 ### Step 4 — Present Report
 
@@ -101,6 +129,10 @@ MISFILED SCOPE ({count}):
   1. /{name} — global but project-specific ({evidence}); likely belongs to {project}
      Action? (relocate / retire / keep-global / skip)
 
+STALE CONTENT ({count}):
+  1. {file} — {review_date past due by N days / no recent activity in 90+ days}
+     Action? (update-now / bump-review-date / skip)
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
@@ -114,6 +146,9 @@ For EACH finding, wait for the user's individual decision. NEVER batch-approve.
 - **backfill**: add the missing sections with placeholder content for the user to fill
 - **relocate**: move the skill folder to the owning project's `.claude/skills/learned/`
   (confirm the project path with the user first)
+- **update-now**: help the user revise the stale content directly
+- **bump-review-date**: update the `review_date` frontmatter field to a new
+  date the user provides (never invent one — ask)
 - **keep/skip**: no action
 
 ### Step 6 — Log Actions
@@ -130,6 +165,8 @@ Curation complete:
   Consolidated: {count}
   Triggers edited: {count}
   Structure backfilled: {count}
+  Stale content updated: {count}
+  Review dates bumped: {count}
   Skipped: {count}
 
 Run /framework-check to verify the library is still healthy.

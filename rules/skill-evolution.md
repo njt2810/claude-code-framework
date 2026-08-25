@@ -50,9 +50,12 @@ Eligible ≠ graduated. The user still approves the promotion explicitly:
    Eligible for promotion to permanent. Promote? (yes/no)"
 2. If yes: move it from `learned/` to its parent skills folder **in the same scope** —
    a project skill graduates within the project (`<project>/.claude/skills/learned/` →
-   `<project>/.claude/skills/`), a global skill within `~/.claude/skills/`.
-   Graduation NEVER changes scope; moving project → global is a separate,
-   explicit user decision (see /learn cross-project check).
+   `<project>/.claude/skills/`), a realm skill within its realm
+   (`<realm-root>/.realm-skills/learned/` → `<realm-root>/.realm-skills/`, v2),
+   a global skill within `~/.claude/skills/`.
+   Graduation NEVER changes scope; moving project → realm, realm → global, or
+   project → global is always a separate, explicit user decision (see /learn
+   cross-project/cross-realm check) — never a side effect of graduation.
 3. Update TEAM.md to add to "Graduated Skills" section
 4. Wait for approval — promotion is not automatic
 

@@ -1,0 +1,6 @@
+{
+  "_comment": "Copy this file to realms.json (in the same folder — %USERPROFILE%\\.claude\\ on Windows) and fill in your own realm roots. realms.json is gitignored and never overwritten by install.bat/upgrade — it's your private map, not shipped content. Keys are arbitrary short names you choose; values are absolute paths to each realm's root folder (the folder that holds that realm's AGENTS.md + CLAUDE.md pair). /adopt and /context prefix-match the current directory against these paths, longest match wins.",
+  "personal": "C:\\Users\\you\\Documents\\Personal",
+  "work": "C:\\Users\\you\\Documents\\Work",
+  "client-acme": "C:\\Users\\you\\Documents\\Clients\\Acme"
+}

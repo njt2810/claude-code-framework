@@ -29,11 +29,11 @@ if not exist "%CLAUDE_HOME%\templates\vendor" mkdir "%CLAUDE_HOME%\templates\ven
 echo    Done.
 
 echo [2/9] Installing skills (slash commands)...
-for %%S in (init-project upgrade-project note new-feature bug-fix wrap-up resume learn help document-all evaluate-repo status security-check constitution review-drift knowledge production-audit review-ui framework-check curate lock-skill unlock-skill pin-skill unpin-skill pr compliance-audit data-inventory legal-docs audit-logging-setup vendor-review compliance-status env-setup observability-setup deploy dr-plan incident release feature-flag auth-setup billing-setup email-setup triage feature recommend add-rule migration api-contract onboard-client careful guard freeze unfreeze timer) do (
+for %%S in (adopt context init-project upgrade-project note new-feature bug-fix wrap-up resume learn help document-all evaluate-repo status security-check constitution review-drift knowledge production-audit review-ui framework-check curate lock-skill unlock-skill pin-skill unpin-skill pr compliance-audit data-inventory legal-docs audit-logging-setup vendor-review compliance-status env-setup observability-setup deploy dr-plan incident release feature-flag auth-setup billing-setup email-setup triage feature recommend add-rule migration api-contract onboard-client careful guard freeze unfreeze timer) do (
     if not exist "%CLAUDE_HOME%\skills\%%S" mkdir "%CLAUDE_HOME%\skills\%%S"
     copy /Y "skills\%%S\SKILL.md" "%CLAUDE_HOME%\skills\%%S\SKILL.md" >nul 2>&1
 )
-echo    53 skills installed.
+echo    55 skills installed.
 
 echo [3/9] Installing agents...
 copy /Y "agents\*.md" "%CLAUDE_HOME%\agents\" >nul 2>&1
@@ -70,7 +70,7 @@ copy /Y "templates\operations\*.md" "%CLAUDE_HOME%\templates\operations\" >nul 2
 copy /Y "templates\vendor\*.md" "%CLAUDE_HOME%\templates\vendor\" >nul 2>&1
 echo    Templates installed (wiki, rules, ci, legal, security-policies, compliance, operations, vendor).
 
-echo [9/9] Installing global CLAUDE.md and TEAM.md...
+echo [9/9] Installing global CLAUDE.md, TEAM.md, and realm registry template...
 if exist "%CLAUDE_HOME%\CLAUDE.md" (
     echo    CLAUDE.md already exists - backing up to CLAUDE.md.backup
     copy /Y "%CLAUDE_HOME%\CLAUDE.md" "%CLAUDE_HOME%\CLAUDE.md.backup" >nul 2>&1
@@ -78,6 +78,13 @@ if exist "%CLAUDE_HOME%\CLAUDE.md" (
 copy /Y "CLAUDE.md" "%CLAUDE_HOME%\CLAUDE.md" >nul 2>&1
 copy /Y "TEAM.md" "%CLAUDE_HOME%\TEAM.md" >nul 2>&1
 copy /Y "VERSION" "%CLAUDE_HOME%\VERSION" >nul 2>&1
+if not exist "%CLAUDE_HOME%\realms.json" (
+    copy /Y "realms.json.example" "%CLAUDE_HOME%\realms.json.example" >nul 2>&1
+    echo    realms.json.example installed - copy to realms.json and fill in your realm roots.
+) else (
+    echo    realms.json already exists - left untouched, never overwritten on reinstall/upgrade.
+    copy /Y "realms.json.example" "%CLAUDE_HOME%\realms.json.example" >nul 2>&1
+)
 echo    Done.
 
 echo.
@@ -123,8 +130,8 @@ if exist "%CLAUDE_HOME%\hooks\scripts\verify-before-stop.sh" (
     set /a ERRORS+=1
 )
 
-if exist "%CLAUDE_HOME%\skills\init-project\SKILL.md" (
-    echo    OK: 53 skills
+if exist "%CLAUDE_HOME%\skills\adopt\SKILL.md" (
+    echo    OK: 55 skills
 ) else (
     echo    MISSING: skills
     set /a ERRORS+=1
@@ -162,8 +169,10 @@ echo.
 echo   Location: %CLAUDE_HOME%
 echo.
 echo   Installed:
-echo     53 skills   (core)
-echo                   /init-project /upgrade-project
+echo     55 skills   (realm system)
+echo                   /adopt /context
+echo                 (core)
+echo                   /init-project (legacy alias for /adopt) /upgrade-project
 echo                   /new-feature /bug-fix /pr
 echo                   /wrap-up /resume /note /learn /help
 echo                   /document-all /evaluate-repo /status
@@ -210,11 +219,12 @@ echo     Templates   - wiki CI/CD rules legal
 echo                   security-policies compliance
 echo                   operations vendor
 echo.
-echo   To use: open any project folder in Claude Code and type:
-echo     /init-project personal
-echo     /init-project org1
-echo     /init-project org2
-echo     /init-project learning
+echo   To use: copy realms.json.example to realms.json in %CLAUDE_HOME%
+echo   and fill in your own realm roots (see the README's Realm System
+echo   section). Then open any project folder in Claude Code and type:
+echo     /adopt
+echo   Realm is auto-detected from realms.json - no argument needed.
+echo   No realms.json yet? /adopt still works as a one-off project setup.
 echo.
 echo   Type /help inside Claude Code to see all commands.
 echo ===================================================

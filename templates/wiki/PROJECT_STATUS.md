@@ -1,7 +1,7 @@
 # Project Status
 
 - **Project:** {name}
-- **Stream:** {personal/org1/org2}
+- **Realm:** {realm-key, or "one-off — not part of a realm"}
 - **Status:** active
 - **Last documented:** {date}
 - **Stack:** {languages, frameworks}

@@ -22,16 +22,23 @@ instead — it scans project state and prioritizes.
 Display this reference to the user:
 
 ```
-YOUR COMMAND REFERENCE — 53 skills, 6 always-on + 1 on-demand agents
+YOUR COMMAND REFERENCE — 55 skills, 6 always-on + 1 on-demand agents
+
+REALM SYSTEM
+  /adopt [realm-key]      Bootstrap a new or existing project — realm
+                          auto-detected from ~/.claude/realms.json, no
+                          stream argument needed
+  /context                Show the resolved CLAUDE.md identity/rules chain
+                          for the current directory — debug conflicts,
+                          confirm which realm/persona is active
 
 STARTING & RESUMING
-  /init-project [stream]  Bootstrap a new or existing project
+  /init-project [stream]  Legacy alias for /adopt — the [stream] argument
+                          is ignored (realm now auto-detects)
   /upgrade-project        Bring an initialized project up to the installed
                           framework (assess, archive old files, never delete)
   /note [text]            Leave yourself a note — /resume announces unread
                           notes first, then marks them seen
-                          Streams: personal, org1, org2, learning
-                          Production scope auto-applied to org1/org2
   /resume                 Pick up where you left off (lifecycle-aware)
   /status                 Snapshot of project state + feature pipeline
   /recommend              Lead Engineer coaches you on next actions
@@ -58,7 +65,7 @@ SAFETY MODES — situational risk control
   /freeze                 Read-only on scoped paths (audit mode)
   /unfreeze               Return to normal mode
 
-PRODUCTION SETUP (production streams)
+PRODUCTION SETUP (production-tier projects)
   /env-setup              Dev/staging/prod separation + secret manager
   /observability-setup    Error tracking + logs + metrics + alerts
   /audit-logging-setup    SOC 2 evidence collection from day 1
@@ -78,7 +85,7 @@ OPERATIONS
   /timer [start|stop|...] Track billable hours per client with auto-captured
                           git evidence — for client work only, not internal
 
-COMPLIANCE (production streams)
+COMPLIANCE (production-tier projects)
   /compliance-audit       PDPA + SOC 2 gap analysis
   /compliance-status      Lightweight compliance dashboard
   /data-inventory         Map every PII flow in the codebase
@@ -117,8 +124,9 @@ SESSION MANAGEMENT
 
 WHAT HAPPENS AUTOMATICALLY (hooks + 10 rules)
   Hooks:
-  - SessionStart      Injects team identity, suggests /resume
-  - Identity reload   Re-injects identity + context check after compaction
+  - SessionStart      Injects team roster, points to /context for identity, suggests /resume
+  - Identity reload   Re-injects team roster + context check after compaction
+                      (points to /context — never hardcodes a persona, realms can override it)
   - Bash guard        Warns about chained/long commands
   - Pre-compact       Backs up session state
   - Verify before stop  Blocks if tests are failing
@@ -127,7 +135,8 @@ WHAT HAPPENS AUTOMATICALLY (hooks + 10 rules)
   - Session summary   Tool use metrics at session end
   - Session logger    Records every tool use
   - Skill telemetry   Logs skill invocations for /curate
-  - Identity check    Blocks stop if agent findings unattributed
+  - Identity check    Blocks stop if subagent findings unattributed
+                      (checks attribution, not a specific persona name)
   - Statusline        Plain-English status bar (project, timer, git, PRs)
   - Idle + session-end reminders (inline in settings.json)
 
@@ -137,11 +146,14 @@ WHAT HAPPENS AUTOMATICALLY (hooks + 10 rules)
   - skill-evolution   Never modify framework without approval
   - config-protection No weakening linter to make CI pass
   - fact-forcing      Read file before first edit
-  - pii-handling      PII handling discipline (production)
-  - change-management PR-based workflow on main (production)
+  - pii-handling      PII handling discipline (production-tier)
+  - change-management PR-based workflow on main (production-tier)
   - secrets-management Secret rotation and storage rules
-  - audit-everything  State-change audit logging (production)
+  - audit-everything  State-change audit logging (production-tier)
   - safety-modes      Honor /careful, /guard, /freeze state
+
+  "Production-tier" is declared per-realm (the realm's own CLAUDE.md) or
+  self-declared per-project via /adopt — never hardcoded in the framework.
 
 GRAPHIFY (codebase knowledge graph, if installed)
   /graphify .                Build or rebuild the knowledge graph
@@ -151,6 +163,8 @@ GRAPHIFY (codebase knowledge graph, if installed)
   /graphify explain "Node"   Explain a specific component
 
 QUICK DECISION TREE
+  Setting up a new/existing project? → /adopt (realm auto-detected)
+  Not sure what identity is active?  → /context
   Starting a session?            → /resume then /recommend
   Remember something next time?  → /note "text" (surfaces at next /resume)
   Framework updated since init?  → /upgrade-project (archives, never deletes)
@@ -179,7 +193,7 @@ organized by project phase.
 
 ## Verification
 
-- All 53 installed skills are listed
+- All 55 installed skills are listed
 - Each section grouping is logical
 - Quick decision tree at the bottom resolves common questions
 - Skills the user might not know about are surfaced

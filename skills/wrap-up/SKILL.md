@@ -37,9 +37,13 @@ Run these checks IN PARALLEL and report a single summary:
    - Run with timeout 600000ms
    - Report pass/fail counts
 
-3. **Stream detection**
-   - Read project CLAUDE.md to determine stream (personal/org1/org2/learning)
-   - Production streams (org1/org2, or personal-with-production-flag) get additional checks in Step 7
+3. **Realm + production-tier detection**
+   - Read the project's own `CLAUDE.md` for `Realm:` and `Production-tier:`
+     lines — `/adopt` resolves and writes these once at adopt time, so read
+     them directly rather than re-resolving the realm chain here. If neither
+     line exists (a v1 project not yet re-adopted), fall back to the old
+     `.claude/stream`/`Stream:` detection.
+   - Production-tier projects get additional checks in Step 7
 
 4. **Safety mode check**
    - Read `.claude/state/mode.json`
@@ -182,9 +186,9 @@ something belongs in the top ~30 entries. Report what you updated."
 
 Wait for the Knowledge Agent's report.
 
-## Step 7 — Production Stream Checks
+## Step 7 — Production-Tier Checks
 
-If stream is org1, org2, or personal-with-production-flag:
+If the project is production-tier (per Step 3's detection):
 
 1. **Compliance status**: invoke `/compliance-status` if available — report any new gaps
 2. **Secrets scan**: grep recent commits for likely secrets
@@ -194,7 +198,7 @@ If stream is org1, org2, or personal-with-production-flag:
 5. **Audit log volume**: report if audit logging is active and producing events
 6. **Backup verification**: if backup config exists, report last backup timestamp
 
-For non-production streams, skip Step 7.
+For non-production-tier projects, skip Step 7.
 
 ## Step 8 — Skill Refinement Check
 
@@ -215,22 +219,31 @@ For skills verified 3+ times:
 
 ## Step 9 — Cost & Time Log
 
-If stream has cost tracking enabled (org1, org2, or personal-with-cost-flag):
+Cost tracking is opt-in per project, not tied to a realm (v2 — there is no
+stream concept to gate this on anymore). Check for `.claude/state/
+cost-tracking.json` (`{"enabled": true/false}`):
+- If it exists: honor the stored answer, don't re-ask
+- If it doesn't exist: this is the first `/wrap-up` for this project — ask
+  once "Track session cost/time going forward, in `wiki/logs/
+  cost-time-log.md`? (yes/no)" and write the answer to
+  `.claude/state/cost-tracking.json` so future sessions don't re-ask
+
+If enabled:
 
 1. Calculate session duration (from session start to now)
 2. Append to `wiki/logs/cost-time-log.md`:
 
 ```markdown
-| Date       | Duration | Stream | Project | Notes |
-|------------|----------|--------|---------|-------|
-| {date}     | {Xh Ym}  | {name} | {proj}  | {one-liner} |
+| Date       | Duration | Project | Notes |
+|------------|----------|---------|-------|
+| {date}     | {Xh Ym}  | {proj}  | {one-liner} |
 ```
 
 3. If new third-party services were added this session (detected from package.json/requirements/etc. changes):
    - List them and their estimated monthly cost
    - Append to `wiki/operations/vendor-costs.md`
 
-For streams without cost tracking, skip this step.
+If disabled, skip this step.
 
 ## Step 10 — Update Project Status
 

@@ -1,9 +1,12 @@
 #!/bin/bash
 # Session Start — fires on startup, resume, and clear
-# Injects team identity and suggests /resume
+# Injects team roster and suggests /resume. Does NOT hardcode a persona name —
+# realm-root CLAUDE.md files can override identity (v2 Realm System), and this
+# hook has no way to know which realm (if any) governs the cwd it fires in.
+# Point at /context instead, which resolves it live every time.
 
 echo ""
-echo "Lead Engineer reporting in."
+echo "Framework active. Run /context to see the resolved identity and rules for this location."
 echo ""
 echo "Your team: Code Reviewer, Test Engineer, Wiki Updater, Security Auditor, Knowledge Agent, Compliance Officer + UI/UX Engineer (on-demand)."
 echo "Delegate to them for reviews, audits, docs, testing, compliance, and knowledge management."
