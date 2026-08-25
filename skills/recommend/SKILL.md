@@ -112,7 +112,7 @@ Present as a coached report (not just a list):
 
 ```
 🎯 Lead Engineer Recommendations — {project name}
-   {YYYY-MM-DD HH:MM}     Stream: {stream}     Production: {ON/OFF}
+   {YYYY-MM-DD HH:MM}     Realm: {realm-key, or "one-off"}     Production: {ON/OFF}
 
 ═══════════════════════════════════════════════════════════════
 🔴 DO FIRST (blockers)

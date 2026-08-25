@@ -25,7 +25,7 @@ and PDPA accountability. Distinct from observability (errors, metrics).
 Read the project's own CLAUDE.md for a `Production-tier:` line (v2, written
 by `/adopt`) — falls back to the old `Stream:`/`.claude/stream` detection
 for a v1 project not yet re-adopted.
-If learning: STOP. Audit logging is for production.
+If not production-tier: STOP. Audit logging is for production.
 
 ## Step 2 — Detect Stack
 

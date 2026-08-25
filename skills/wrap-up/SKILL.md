@@ -69,7 +69,7 @@ DIAGNOSTICS:
   Unpushed:      {N} commits (or "in sync")
   Open PR:       {URL or "none"}
   Tests:         {pass}/{total} passing
-  Stream:        {name}
+  Realm:         {realm-key, or "one-off"}
   Safety mode:   {mode}
   Active timer:  {client · note · duration, or "none"}
   Lifecycle:     {N} auto-transitions ({list})
