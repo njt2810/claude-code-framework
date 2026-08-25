@@ -45,8 +45,11 @@ Not for resuming work or starting a feature.
 3. Check `wiki/logs/` for the latest session log
 4. Count files in `.claude/skills/learned/`
 5. Read `graphify-out/GRAPH_REPORT.md` for codebase size if available
-6. For production-tier projects: read `wiki/compliance/gaps.md` for compliance state
-7. Read `.claude/state/mode.json` for safety mode
+6. Read the project's own `CLAUDE.md` for `Realm:` and `Production-tier:`
+   lines (written once by `/adopt`); fall back to `.claude/stream`/`Stream:`
+   for a v1 project not yet re-adopted
+7. For production-tier projects: read `wiki/compliance/gaps.md` for compliance state
+8. Read `.claude/state/mode.json` for safety mode
 
 Display:
 

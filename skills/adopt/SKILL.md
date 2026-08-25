@@ -36,8 +36,22 @@ production-tier status and org/GitHub info get determined has changed.
 
 ### Step 1 — Resolve Realm
 
-Read `~/.claude/realms.json` if it exists (JSON map of `realm-key` →
-absolute realm-root path; see `realms.json.example` for the format).
+If `$ARGUMENTS` was given (a `[realm-key]` argument — see frontmatter), it
+**overrides auto-detection entirely**: look it up directly in
+`~/.claude/realms.json` by key.
+- Key found → use that realm, skip the prefix-match below. If cwd isn't
+  actually under that realm's registered root, say so explicitly ("Note:
+  this project is outside {realm-key}'s registered path {root} — proceeding
+  anyway since you named it directly") rather than silently proceeding as if
+  nothing's unusual.
+- Key not found in `realms.json` (or `realms.json` doesn't exist) → say so
+  plainly: "No realm named '{key}' in realms.json{ — or realms.json doesn't
+  exist yet}." and fall through to auto-detection below rather than failing
+  outright — the argument was an override attempt, not a hard requirement.
+
+Otherwise (no argument given), auto-detect: read `~/.claude/realms.json` if
+it exists (JSON map of `realm-key` → absolute realm-root path; see
+`realms.json.example` for the format).
 
 - **If it doesn't exist**: note that the realm system isn't configured on
   this install yet. Treat this adoption as a one-off (skip to the one-off
@@ -72,7 +86,7 @@ From the matched realm root:
   "production-tier" / "production tier" language). Presence → production
   scope ON for every project under this realm, no prompt. Absence → OFF by
   default, but Step 2's self-declare escape hatch still applies per-project.
-- Check whether `<realm-root>\.realm-skills\` exists and has any skill
+- Check whether `<realm-root>/.realm-skills/` exists and has any skill
   folders — feeds Step 3.5's realm-skill sync.
 
 Do **not** copy anything from the realm root into the project. This step is
@@ -97,6 +111,12 @@ separation (`.env.{development,staging,production}.example`).
   to real users. (yes/no)" A yes here is a per-project self-declaration —
   it doesn't change the realm's own status.
 - One-off (no realm) → same self-declare question as above.
+
+Whatever this resolves to gets written once into the project's own
+`CLAUDE.md` as `Production-tier: yes` or `Production-tier: no` (see the
+template in Step 3.2) — the single source of truth every downstream
+consumer (statusline, `/wrap-up`, `/status`) reads, so nothing needs to
+re-resolve the realm chain itself.
 
 Steps below that depend on production scope are marked `(production)`.
 
@@ -125,9 +145,11 @@ clearly isn't a throwaway experiment): "Full setup (git, GitHub repo, CI/CD,
 security audit, full wiki scaffolding) or minimal (just `CLAUDE.md` +
 `.claude/skills/learned/` + a bare `wiki/` — for a quick experiment you may
 throw away)?" Minimal setup skips Steps 3.1 (GitHub repo creation, though
-still runs local `git init`), 3.9 (security audit), 3.10 (CI/CD), and all
-production-scope steps regardless of Step 2's answer — an experiment isn't
-where you want SOC 2 scaffolding. Everything else in this section assumes
+still runs local `git init`), 3.3 (scoped rules — an experiment doesn't need
+`debugging.md`/`testing.md` glob rules any more than it needs CI), 3.9
+(security audit), 3.10 (CI/CD), and all production-scope steps regardless of
+Step 2's answer — an experiment isn't where you want SOC 2 scaffolding.
+Everything else in this section assumes
 full setup; minimal-setup skips are called out inline where relevant.
 
 #### 3.1 Git Initialization
@@ -152,7 +174,12 @@ CLAUDE.md template (adapt based on detected stack; keep it short — identity,
 delegation style, and the always-loaded rules are already inherited
 automatically from the realm root and global `~/.claude/`, so this file
 should NOT restate them — restating invites the exact drift this framework
-exists to prevent):
+exists to prevent). Two fields the old `/init-project` template had are
+deliberately gone, not just forgotten: an Obsidian wiki path (superseded —
+wiki content lives in this project's own `wiki/`, and a realm's shared docs
+belong in the realm root, not duplicated per-project) and a cost-dashboard
+path (superseded by `/wrap-up`'s per-project opt-in cost tracking, Step 9 —
+there's no longer a stream-level flag to derive a dashboard path from):
 
 ```markdown
 # {Project Name}
@@ -173,6 +200,11 @@ exists to prevent):
 {If a realm resolved}: Realm: {realm-key} (see the realm root's CLAUDE.md
 for identity/rules — inherited automatically, not restated here).
 {If one-off}: Not part of a registered realm — global defaults apply.
+Production-tier: {yes/no} — resolved once at adopt time from
+{"the realm's CLAUDE.md declaration" / "a self-declaration for this project"
+/ "no declaration, defaults to no"}. Machine-readable for tooling (e.g. the
+statusline) — re-run `/adopt` or edit this line directly if it ever needs to
+change; nothing re-resolves it automatically after this point.
 
 ## Documentation
 - Architecture and system design: wiki/architecture.md
@@ -211,7 +243,7 @@ Then the testing standards.
 
 #### 3.5 Realm-Skill Sync (only if a realm resolved with `.realm-skills/`)
 
-If Step 1a found skills under `<realm-root>\.realm-skills\`, offer to copy
+If Step 1a found skills under `<realm-root>/.realm-skills/`, offer to copy
 each one into this project's `.claude/skills/`, logged with source path and
 timestamp in the final report — never silent, never automatic.
 

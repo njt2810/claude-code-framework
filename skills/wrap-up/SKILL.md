@@ -38,9 +38,11 @@ Run these checks IN PARALLEL and report a single summary:
    - Report pass/fail counts
 
 3. **Realm + production-tier detection**
-   - Run `/context`-equivalent resolution: which realm (if any) governs this
-     project, and is it production-tier (the realm's `CLAUDE.md` declaration,
-     or a per-project self-declaration)
+   - Read the project's own `CLAUDE.md` for `Realm:` and `Production-tier:`
+     lines — `/adopt` resolves and writes these once at adopt time, so read
+     them directly rather than re-resolving the realm chain here. If neither
+     line exists (a v1 project not yet re-adopted), fall back to the old
+     `.claude/stream`/`Stream:` detection.
    - Production-tier projects get additional checks in Step 7
 
 4. **Safety mode check**

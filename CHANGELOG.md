@@ -40,7 +40,7 @@ upgrading.
   stale wiki/decision files with no recent activity. Same propose-only,
   no-batch-approval discipline as the rest of `/curate`.
 - **`/learn` and skill graduation gain a REALM tier.** Learned skills can now
-  live at `<realm-root>\.realm-skills\` — between project-local and global —
+  live at `<realm-root>/.realm-skills/` — between project-local and global —
   synced into a project's `.claude/skills/` by `/adopt`, never silently.
 - **Removed: the Mission Control dashboard spec** (`docs/DASHBOARD-SPEC.md`,
   `docs/mockups/`). It was never built, and sat in tension with the

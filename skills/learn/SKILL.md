@@ -38,7 +38,7 @@ Review what just happened and answer:
 **Default scope is PROJECT-LOCAL**: `<project-root>/.claude/skills/learned/` —
 the `.claude` folder INSIDE the current project, NEVER `~/.claude/skills/`.
 
-A skill goes REALM (`<realm-root>\.realm-skills\`, v2) only if BOTH are true:
+A skill goes REALM (`<realm-root>/.realm-skills/`, v2) only if BOTH are true:
 1. The procedure is specific to how this realm's projects work (a shared
    convention, service, or pattern across the realm) but NOT specific to
    this one project alone
@@ -62,7 +62,7 @@ default with no realm concept to place them in at the time.
 ## Step 3 — Check for Existing Skill
 
 Search the PROJECT's `.claude/skills/learned/` first, then (if a realm
-resolved) `<realm-root>\.realm-skills\`, then `~/.claude/skills/learned/`:
+resolved) `<realm-root>/.realm-skills/`, then `~/.claude/skills/learned/`:
 - If a related skill exists → propose UPDATING it with new learnings (in its current location)
 - If nothing similar exists → propose CREATING a new skill
 
@@ -89,7 +89,7 @@ Verified on:
   - {today's date}: {brief outcome description}
 
 Save to {project-root}/.claude/skills/learned/{name}/SKILL.md?
-(or <realm-root>\.realm-skills\{name}\SKILL.md if scope is REALM,
+(or <realm-root>/.realm-skills/{name}/SKILL.md if scope is REALM,
  or ~/.claude/skills/learned/{name}/SKILL.md if scope is GLOBAL)
 ```
 
@@ -129,7 +129,7 @@ All TEAM.md modifications follow the skill-evolution protocol — approval requi
 
 If a PROJECT-scoped skill later seems broadly useful within its realm:
 "This learning could be useful across other {realm-key} projects.
- Want me to promote it to the realm's skill folder (<realm-root>\.realm-skills\)?"
+ Want me to promote it to the realm's skill folder (<realm-root>/.realm-skills/)?"
 
 If a PROJECT- or REALM-scoped skill later seems useful everywhere, regardless
 of realm:

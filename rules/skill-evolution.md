@@ -51,7 +51,7 @@ Eligible ≠ graduated. The user still approves the promotion explicitly:
 2. If yes: move it from `learned/` to its parent skills folder **in the same scope** —
    a project skill graduates within the project (`<project>/.claude/skills/learned/` →
    `<project>/.claude/skills/`), a realm skill within its realm
-   (`<realm-root>\.realm-skills\learned\` → `<realm-root>\.realm-skills\`, v2),
+   (`<realm-root>/.realm-skills/learned/` → `<realm-root>/.realm-skills/`, v2),
    a global skill within `~/.claude/skills/`.
    Graduation NEVER changes scope; moving project → realm, realm → global, or
    project → global is always a separate, explicit user decision (see /learn
