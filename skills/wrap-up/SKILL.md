@@ -117,7 +117,7 @@ If on a feature/fix branch with unpushed commits:
    - If yes: invoke `/pr`
 
 If on main/master with unpushed commits:
-- This SHOULD NOT happen with production streams (branch protection blocks it)
+- This SHOULD NOT happen with production-tier projects (branch protection blocks it)
 - For non-production: push directly with `git push`
 
 ## Step 4 — Write Session Log
@@ -281,7 +281,7 @@ git commit -m "Session wrap-up — {date}"
 ```
 
 If on a feature/fix branch: push the wrap-up commit to the branch.
-If on main with production stream: STOP — this should have been on a branch.
+If on main with production-tier project: STOP — this should have been on a branch.
 
 ## Step 13 — Final Report + Recommendations
 
@@ -325,12 +325,12 @@ condensed: scan blockers first, then high-value items, pick top 3.
 - Skipping Steps 5-6 (delegate to Wiki Updater and Knowledge Agent) means
   documentation drifts session by session
 - Treating Step 7 as a reminder instead of running the checks defeats the
-  purpose of production streams
+  purpose of production-tier projects
 - Promoting a learned skill that has only been verified once or twice —
   wait for 3+ verifications
 - Not pushing the branch leaves work locked on your machine — next session
   cannot pick up where you left off if you switch devices
-- Committing wrap-up changes to main on a production stream — should always
+- Committing wrap-up changes to main on a production-tier project — should always
   be on a branch with a PR
 
 ## Verification

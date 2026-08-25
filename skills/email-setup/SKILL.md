@@ -149,7 +149,7 @@ In Singapore PDPA:
 - Every marketing email needs unsubscribe link (CAN-SPAM, PDPA)
 - Unsubscribe must work within 30 days (CAN-SPAM) or 14 days (some jurisdictions)
 
-For production streams:
+For production-tier projects:
 - Add `marketing_consent` field to users table
 - Honor opt-out immediately
 - Document email categories in privacy policy

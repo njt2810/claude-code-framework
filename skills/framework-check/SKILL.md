@@ -66,7 +66,7 @@ Production setup:
 Operations:
   deploy, release, feature-flag, incident, triage, timer
 
-Compliance (production streams):
+Compliance (production-tier projects):
   compliance-audit, compliance-status, data-inventory,
   legal-docs, vendor-review
 

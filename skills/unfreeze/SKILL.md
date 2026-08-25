@@ -83,7 +83,7 @@ Logged:    {evidence file path, if applicable}
 Recommended next:
   - Resume routine work
   - If you completed risky work: consider committing the audit-trail entry
-  - For production streams: /compliance-status to verify nothing slipped
+  - For production-tier projects: /compliance-status to verify nothing slipped
 ```
 
 ## Pitfalls

@@ -30,9 +30,11 @@ Read `$ARGUMENTS` to determine which framework(s) to audit:
 - `both` — audit against both (recommended)
 - If empty: ask "Audit against PDPA, SOC 2, or both?"
 
-Also detect the project stream from CLAUDE.md:
-- If stream is `learning`: STOP. Say "Learning stream projects are not in
-  compliance scope. /compliance-audit is for production streams only."
+Also read the project's own CLAUDE.md for a `Production-tier:` line (v2,
+written by `/adopt`) — falls back to the old `Stream:`/`.claude/stream`
+detection for a v1 project not yet re-adopted:
+- If not production-tier: STOP. Say "Non-production-tier projects are not
+  in compliance scope. /compliance-audit is for production-tier projects only."
 
 ## Step 2 — Delegate to Compliance Officer
 
@@ -83,7 +85,7 @@ Write `wiki/compliance/gaps.md` (append a new dated section if file exists):
 
 Scope: {PDPA|SOC2|both}
 Auditor: Compliance Officer agent
-Stream: {project stream}
+Realm: {realm-key, or "one-off"}
 
 ### Summary
 
@@ -158,7 +160,7 @@ Next steps:
 
 - Running this without a Compliance Officer agent installed — fails silently.
   Confirm agent exists at .claude/agents/compliance-officer.md first.
-- Running on `learning` stream — meaningless and noisy. Block early.
+- Running on a non-production-tier project — meaningless and noisy. Block early.
 - Overwriting `wiki/compliance/gaps.md` instead of appending — historical
   audits matter for SOC 2 evidence.
 - Auditing without specifying scope — defaults are dangerous; ask the user.

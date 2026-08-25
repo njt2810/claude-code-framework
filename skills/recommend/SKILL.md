@@ -24,7 +24,7 @@ This is **coaching**, not just status. The Lead Engineer scans:
 - Open PRs (gh pr list)
 - Test failures
 - Stale items (PRs > 7 days, audits > 90 days, vendor reviews due)
-- Production stream readiness (if applicable)
+- Production-tier project readiness (if applicable)
 
 And produces a prioritized list with WHY for each.
 
@@ -46,10 +46,10 @@ Run `/recommend`:
 
 Read in parallel:
 - `wiki/features/` — all feature files
-- `wiki/compliance/gaps.md` (production streams)
-- `wiki/compliance/evidence-index.md` (production streams)
-- `wiki/compliance/vendor-register.md` (production streams)
-- `wiki/operations/calendar.md` (production streams)
+- `wiki/compliance/gaps.md` (production-tier projects)
+- `wiki/compliance/evidence-index.md` (production-tier projects)
+- `wiki/compliance/vendor-register.md` (production-tier projects)
+- `wiki/operations/calendar.md` (production-tier projects)
 - `wiki/PROJECT_STATUS.md`
 - `wiki/backlog.md` (if exists, from /triage)
 - Last 5 entries from `wiki/logs/`
@@ -67,14 +67,14 @@ Classify findings into categories:
 **Blockers (do FIRST):**
 - P0 bugs not yet fixed
 - Failing tests on main
-- CRITICAL compliance gaps (production streams)
+- CRITICAL compliance gaps (production-tier projects)
 - Stale PR ready to merge (in review > 24h, CI green, approved)
 - Active incident open
 
 **High-value next (do next):**
 - P1 features in `in-progress` state — push to review
 - Features in `review` with Code Reviewer findings unaddressed
-- Vendor reviews overdue (production streams)
+- Vendor reviews overdue (production-tier projects)
 - Compliance audit overdue (>90 days for production)
 
 **Maintenance (when capacity):**
@@ -181,14 +181,14 @@ If the user picks one, invoke the relevant skill/workflow.
 - Items in proposed > 30 days → recommend triage decision (build/archive)
 
 **Pattern: "Shipping without compliance"**
-- Production stream, deploy happened, but no compliance audit in 90 days
+- Production-tier project, deploy happened, but no compliance audit in 90 days
   → recommend /compliance-audit before next deploy
 
 **Pattern: "Vendor risk drift"**
 - Vendor added but no /vendor-review entry → recommend review now
 
 **Pattern: "Skill never run when it should be"**
-- Production stream, no /audit-logging-setup output → recommend immediately
+- Production-tier project, no /audit-logging-setup output → recommend immediately
 
 **Pattern: "Friday afternoon"**
 - Suggesting non-trivial deploys on Friday afternoon → discourage

@@ -47,7 +47,7 @@ projects are exempt.
 ## When You See a Violation
 
 If you see code being committed directly to main on a production project:
-"⚠️ Direct commit to main detected. Production streams require PR workflow.
+"⚠️ Direct commit to main detected. Production-tier projects require PR workflow.
  Suggest: undo, create feature branch, open PR via /pr."
 
 If you see a PR being merged with failing CI:

@@ -16,14 +16,16 @@ Your job is to orchestrate, build, and decide. Their job is to check your work.
 | Test Engineer | QA + failure readiness — edge cases, coverage reporting, health checks, resilience | After implementation, for failing tests, coverage questions |
 | Wiki Updater | Docs + operational docs — architecture, runbooks, deploy/rollback docs, ownership | After decisions, major changes, /document-all |
 | Security Auditor | Security + supply chain — secrets, vulnerabilities, dependency pinning, runtime security | Code touches auth/payments/data/APIs, /security-check |
-| Compliance Officer | PDPA + SOC 2 — controls, audit logging, vendor risk, legal docs (production streams only) | PII/auth code, /compliance-audit, /vendor-review, client questionnaires |
+| Compliance Officer | PDPA + SOC 2 — controls, audit logging, vendor risk, legal docs (production-tier projects only) | PII/auth code, /compliance-audit, /vendor-review, client questionnaires |
 | Knowledge Agent | Knowledge — glossary, people, projects, context, second brain | /knowledge, memory bootstrap, gap detection, context building |
 | UI/UX Engineer | Design (ON-DEMAND) — design systems, accessibility, responsiveness, anti-AI-slop | Only when user asks, /review-ui, or frontend features in /new-feature |
 
 **Delegation rules:**
 - **Delegate:** Reviews, audits, documentation, test design, knowledge management — anything that checks YOUR work
 - **Handle yourself:** Implementation, debugging, planning, architecture, user communication
-- **After building:** Always delegate to at least one specialist before shipping
+- **After building:** Delegate to at least one specialist before shipping by default.
+  Skippable for small, low-risk changes (typo fixes, single-line tweaks, comment-only
+  edits) — use judgment. Non-trivial changes still delegate by default.
 - **For features:** Build → Test Engineer → Code Reviewer → Security Auditor (if sensitive) → Compliance Officer (production + PII) → UI/UX Engineer (if frontend) → Wiki Updater
 - **For bug fixes:** Reproduce → Test Engineer (failing test) → Fix → Code Reviewer → Commit
 - **For knowledge:** /knowledge bootstrap or gaps → Knowledge Agent builds/updates the second brain
@@ -40,11 +42,11 @@ Read this carefully. When the user is unsure what to do, this table answers it.
 
 | When | Run | Why |
 |------|-----|-----|
-| Starting a new project | `/init-project [stream]` | Bootstraps everything — agents, rules, wiki, CI, etc. |
+| Starting a new project | `/adopt` | Realm auto-detected — bootstraps everything: rules, wiki, CI, etc. (`/init-project [stream]` still works as a legacy alias) |
 | Framework improved since project was set up | `/upgrade-project` | Assess → report → archive old files → apply updates → /resume. Never deletes. |
 | Want to remember something next session | `/note "text"` | Appends to wiki/notes/inbox.md — /resume announces unread notes first |
-| After /init-project | `/constitution` | Document non-negotiable principles + constraints |
-| After /init-project on production | `/knowledge bootstrap` | Populate the second brain from project context |
+| After /adopt | `/constitution` | Document non-negotiable principles + constraints |
+| After /adopt on a production-tier project | `/knowledge bootstrap` | Populate the second brain from project context |
 
 ### Phase 2 — Building Features
 
@@ -60,7 +62,7 @@ Read this carefully. When the user is unsure what to do, this table answers it.
 | Touching risky code | `/careful` (before), `/unfreeze` (after) | Extra confirmations + auto-review |
 | Touching critical systems | `/guard` (before), `/unfreeze` (after) | Explicit yes per step + snapshot first |
 
-### Phase 3 — Pre-Launch (production streams only)
+### Phase 3 — Pre-Launch (production-tier projects only)
 
 | When | Run | Why |
 |------|-----|-----|
@@ -73,7 +75,7 @@ Read this carefully. When the user is unsure what to do, this table answers it.
 | Before sending email | `/email-setup` | DNS for SPF/DKIM/DMARC takes 24h to propagate |
 | Before each vendor adoption | `/vendor-review` | DPA check + SOC 2 status + risk score |
 
-### Phase 4 — Pre-Client (production streams only)
+### Phase 4 — Pre-Client (production-tier projects only)
 
 | When | Run | Why |
 |------|-----|-----|
@@ -142,7 +144,7 @@ Read this carefully. When the user is unsure what to do, this table answers it.
 - ❌ Deploying without `/deploy` skill → bypasses safety gates
 - ❌ Editing the same file 3+ times for one bug → stop and reassess, possibly /rewind
 - ❌ Saying "fixed" without showing passing test output → forbidden by /bug-fix
-- ❌ Production stream without `/audit-logging-setup` before first deploy → can't retroactively capture evidence
+- ❌ Production-tier project without `/audit-logging-setup` before first deploy → can't retroactively capture evidence
 - ❌ Skipping `/wrap-up` at session end → next session has no continuity, lifecycle stale
 - ❌ Running `/careful` and forgetting to `/unfreeze` → friction bleeds into routine work
 - ❌ Starting `/timer` for internal product work → that's not billable, use `/feature` instead

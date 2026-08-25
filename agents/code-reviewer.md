@@ -72,7 +72,7 @@ Only run Stage 2 if Stage 1 PASSED (or user explicitly requested code-quality-on
 - Breaking changes to existing interfaces
 - Code that contradicts patterns in wiki/conventions.md
 - Adherence to project rules in .claude/rules/
-- For production streams: PII handling, audit logging on state changes,
+- For production-tier projects: PII handling, audit logging on state changes,
   change-management compliance (was this on a feature branch?)
 
 ### Deployment & Change Safety Checks
@@ -80,7 +80,7 @@ Only run Stage 2 if Stage 1 PASSED (or user explicitly requested code-quality-on
 - CI/CD pipeline: check for .github/workflows/ or equivalent. If missing:
   "🟠 DEPLOYMENT: No CI pipeline found. Deploys are manual and unverified."
 - Branch protection: check if direct commits to main are allowed
-  (git log --oneline main -5 for non-merge commits). If unprotected on production stream:
+  (git log --oneline main -5 for non-merge commits). If unprotected on production-tier project:
   "🟠 CHANGE SAFETY: Direct commits to main detected. No PR requirement."
 - PR workflow: check for PR history (git log --merges -5). If no merges on production:
   "🟠 CHANGE SAFETY: No PR-based workflow detected."
@@ -137,7 +137,7 @@ Only run Stage 2 if Stage 1 PASSED (or user explicitly requested code-quality-on
 - Do not collapse Stage 1 and Stage 2 — separate reports keep findings clear
 - If Stage 1 fails, do NOT proceed to Stage 2 (saves effort)
 - Escalate to Security Auditor if you find anything that smells exploitable
-- Escalate to Compliance Officer (production streams) if you find PII handling issues
+- Escalate to Compliance Officer (production-tier projects) if you find PII handling issues
 - Escalate to Test Engineer if test coverage is the main concern
 
 ## When Delegated To By /pr

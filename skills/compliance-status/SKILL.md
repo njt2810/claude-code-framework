@@ -20,10 +20,12 @@ use `/compliance-audit`.
 
 ## Procedure
 
-## Step 1 — Stream Check
+## Step 1 — Production-Tier Check
 
-Read CLAUDE.md to confirm production stream.
-If learning: STOP. Compliance is for production streams.
+Read the project's own CLAUDE.md for a `Production-tier:` line (v2, written
+by `/adopt`) — falls back to the old `Stream:`/`.claude/stream` detection
+for a v1 project not yet re-adopted.
+If not production-tier: STOP. Compliance is for production-tier projects only.
 
 ## Step 2 — Read Compliance Files
 
@@ -62,7 +64,7 @@ If audit log helper exists (`src/lib/audit-log.ts` or `src/audit_log.py`):
 
 ```
 Compliance Status — {project name}
-Stream: {stream}    Updated: {YYYY-MM-DD HH:MM}
+Realm: {realm-key, or "one-off"}    Updated: {YYYY-MM-DD HH:MM}
 
 📊 Overview
   Days since last audit:        {N}  ({status: 🟢 < 90  🟡 90-180  🔴 > 180})

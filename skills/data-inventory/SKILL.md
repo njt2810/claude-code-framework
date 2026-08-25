@@ -22,10 +22,12 @@ whenever a new data type is introduced.
 
 ## Procedure
 
-## Step 1 — Stream Check
+## Step 1 — Production-Tier Check
 
-Read project CLAUDE.md to determine stream.
-If stream is `learning`: STOP. Data inventory is for production streams.
+Read the project's own CLAUDE.md for a `Production-tier:` line (v2, written
+by `/adopt`) — falls back to the old `Stream:`/`.claude/stream` detection
+for a v1 project not yet re-adopted.
+If not production-tier: STOP. Data inventory is for production-tier projects.
 
 ## Step 2 — Scan Codebase for PII
 
@@ -65,7 +67,7 @@ Write `wiki/compliance/data-inventory.md`:
 
 Last updated: {YYYY-MM-DD}
 Project: {project name}
-Stream: {stream}
+Realm: {realm-key, or "one-off"}
 
 ## PII Fields
 

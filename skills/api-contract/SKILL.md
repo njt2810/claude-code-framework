@@ -143,7 +143,7 @@ Classify changes:
 For RISKY or BREAKING changes:
 - Generate a notice for downstream consumers
 - Require explicit confirmation in PR description
-- Block merge until consumer notification is sent (for production streams)
+- Block merge until consumer notification is sent (for production-tier projects)
 
 ## Step 5 — Operation: PUBLISH
 
@@ -156,11 +156,11 @@ Publish destination options:
 - Internal docs portal (private)
 - README.md (basic version)
 
-For production streams: also publish to `wiki/api/` as committed reference.
+For production-tier projects: also publish to `wiki/api/` as committed reference.
 
 ## Step 6 — Auditor's Checklist
 
-For production streams, the Compliance Officer cares about:
+For production-tier projects, the Compliance Officer cares about:
 - Authentication scheme documented (OAuth, API key, etc.)
 - Rate limits documented
 - PII fields marked in schema (use `x-pii: true` extension in OpenAPI)

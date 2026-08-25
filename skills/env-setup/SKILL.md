@@ -16,14 +16,17 @@ pinned: true
 ## When to Use
 
 When a project needs proper dev/staging/production separation, or has drifted
-into inconsistent env handling and needs cleanup. Required for production streams.
+into inconsistent env handling and needs cleanup. Required for production-tier projects.
 
 ## Procedure
 
-## Step 1 — Stream Check
+## Step 1 — Production-Tier Check
 
-Read project CLAUDE.md to confirm stream.
-If learning: STOP. Env separation is overkill for learning projects.
+Read the project's own CLAUDE.md for a `Production-tier:` line (v2, written
+by `/adopt`) — falls back to the old `Stream:`/`.claude/stream` detection
+for a v1 project not yet re-adopted.
+If not production-tier: STOP. Env separation is overkill for a throwaway/
+experimental project.
 
 ## Step 2 — Audit Current State
 
@@ -115,7 +118,7 @@ Ensure these are ignored (NOT the `.example` files):
 
 ## Step 6 — Choose Secret Manager (Production)
 
-For production stream, the user needs a secret manager. Present options
+For production-tier project, the user needs a secret manager. Present options
 (vendor-neutral):
 
 | Option | Pros | Cons | Use when |
