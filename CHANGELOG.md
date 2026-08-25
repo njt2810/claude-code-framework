@@ -70,6 +70,33 @@ projects keep working unchanged; realm adoption is opt-in and incremental —
 `/adopt` still works as a one-off project bootstrap with no `realms.json` at
 all.
 
+**Post-release fixes (same 2.0.0, found while actually running the migration
+on a live install — folded in here rather than a separate version, since
+nothing about the design changed):**
+
+- **Reconciled 3 undocumented fixes that existed only in a live `~/.claude`
+  install and had never been committed to this repo** — a real
+  Jest-vs-Vitest bug in `verify-before-stop.sh` (`--watchAll` is Jest-only;
+  passing it to Vitest/Mocha/node:test made the hook misreport its own crash
+  as "tests are failing"), a substantively rewritten `CLAUDE.md` Process
+  Monitoring section, and a refined Identity Check stop-hook prompt (scoped
+  to evaluate only the assistant's most recent message, avoiding
+  re-litigating earlier already-approved messages). These would have been
+  silently destroyed by a routine reinstall — a reminder that `~/.claude`
+  isn't git-tracked and can drift from this repo; always diff before
+  overwriting, never copy wholesale.
+- **Completed the production-tier genericization sweep.** The original pass
+  undercounted the "hardcoded stream name" pattern — a second, wider sweep
+  found 7 more skills (`audit-logging-setup`, `compliance-status`,
+  `dr-plan`, `observability-setup`, `compliance-audit`, `data-inventory`,
+  `env-setup`) with a real functional bug: each read a `Stream:` field from
+  a project's `CLAUDE.md` to gate its own STOP logic, but `/adopt` no longer
+  writes that field — it writes `Realm:`/`Production-tier:` instead. Left
+  unfixed, all 7 would have silently failed to detect production-tier
+  status on any v2-adopted project. Fixed with the same fallback pattern
+  used elsewhere: read `Production-tier:` (v2), fall back to
+  `Stream:`/`.claude/stream` (v1, not yet re-adopted).
+
 ## 2026.07.19
 
 **Reliability: the framework now tests itself**
