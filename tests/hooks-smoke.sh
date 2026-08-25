@@ -50,6 +50,46 @@ EXTRACT=$(grep -oE '"test"[[:space:]]*:[[:space:]]*"[^"]*"' package.json | head 
 rm -f package.json
 ! grep -q 'grep -oP' "$HOOKS/verify-before-stop.sh"; check "no grep -P anywhere in verify-before-stop" $?
 
+# --watchAll is Jest-only; passing it to Vitest/Mocha/node:test is a CLI parse
+# error that makes the hook report its own crash as "tests are failing" on
+# every stop. This was fixed once, silently dropped during the v2 rewrite
+# (the fix lived only in the installed ~/.claude copy, never in this repo),
+# and re-merged. This actually invokes the hook (not a copy of its logic) --
+# a fake npm on PATH mimics Vitest's real failure mode (errors on the
+# Jest-only --watchAll flag, succeeds otherwise), so this fails if the
+# conditional in the hook is ever removed again.
+VITEST_DIR=$(mktemp -d)
+cd "$VITEST_DIR" || exit 1
+git init -q
+git config user.email "test@test.com"
+git config user.name "test"
+echo "console.log('v1')" > app.js
+git add app.js
+git commit -qm "init"
+echo '{"scripts": {"test": "vitest run"}}' > package.json
+echo "console.log('v2')" > app.js
+
+FAKE_BIN=$(mktemp -d)
+cat > "$FAKE_BIN/npm" <<'NPMEOF'
+#!/bin/bash
+for arg in "$@"; do
+  case "$arg" in
+    --watchAll*) echo "npm error Unknown option '--watchAll'" >&2; exit 1 ;;
+  esac
+done
+exit 0
+NPMEOF
+chmod +x "$FAKE_BIN/npm"
+
+PATH="$FAKE_BIN:$PATH" bash -c "echo '{\"session_id\":\"$SID\"}' | bash '$HOOKS/verify-before-stop.sh'" >/dev/null 2>&1
+VITEST_EXIT=$?
+[ "$VITEST_EXIT" = "0" ]; check "vitest test script doesn't get the Jest-only --watchAll flag (got exit $VITEST_EXIT)" $?
+
+rm -rf "$FAKE_BIN"
+cd "$WORKDIR" || exit 1
+rm -rf "$VITEST_DIR"
+rm -f package.json
+
 echo "== verify-before-stop: bug-fix handoff marker =="
 rm -f "$TMPDIR_BASE/claude-bugfix-allow-stop" 2>/dev/null  # defensive: don't depend on ambient state
 MARKER_DIR=$(mktemp -d)

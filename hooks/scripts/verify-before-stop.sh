@@ -52,7 +52,15 @@ if [ -f "package.json" ]; then
   # Check if test script exists (portable — no jq, no grep -P; -P fails on Git Bash grep)
   HAS_TEST=$(grep -oE '"test"[[:space:]]*:[[:space:]]*"[^"]*"' package.json 2>/dev/null | head -1 | sed 's/.*"test"[[:space:]]*:[[:space:]]*"//;s/"$//')
   if [ -n "$HAS_TEST" ] && ! echo "$HAS_TEST" | grep -q "no test specified"; then
-    TEST_CMD="npm test -- --watchAll=false 2>&1"
+    # --watchAll is Jest-only. Passing it to Vitest (or Mocha, node:test, etc.)
+    # is a CLI parse error that fails before a single test runs, so the hook
+    # reports its own crash as "tests are failing" on every stop. Only add it
+    # for Jest; `vitest run` and friends are already non-watching.
+    if echo "$HAS_TEST" | grep -q "jest"; then
+      TEST_CMD="npm test -- --watchAll=false 2>&1"
+    else
+      TEST_CMD="npm test 2>&1"
+    fi
   fi
 elif [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ]; then
   if command -v pytest &>/dev/null; then

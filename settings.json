@@ -88,7 +88,7 @@
         "hooks": [
           {
             "type": "prompt",
-            "prompt": "Check if the assistant named which subagent produced each finding when presenting subagent results (e.g. 'The Code Reviewer found...', not presenting findings as its own). This applies regardless of which persona/identity is active for this location (realms can override the default 'Lead Engineer' persona via CLAUDE.md) — the requirement is attribution, not a specific persona name. If subagent findings were presented without naming the agent, return {\"decision\": \"block\", \"reason\": \"Name which agent produced each finding.\"}. Otherwise return {\"decision\": \"approve\"}."
+            "prompt": "Evaluate ONLY the assistant's single most recent message. Ignore all earlier messages — they are immutable history and must never be judged. Approve unless that latest message introduces a NEW finding produced by a named subagent (Code Reviewer, Security Auditor, Test Engineer, Wiki Updater, Knowledge Agent, etc.) WITHOUT stating which agent produced it. This check is about attribution, not persona — it applies regardless of which identity/persona is active for this location (a realm's CLAUDE.md can override the default 'Lead Engineer' persona). If the latest message names the agent, presents no new subagent finding, or is simply awaiting user input, return {\"decision\": \"approve\"}. Only return {\"decision\": \"block\", \"reason\": \"Name which agent produced this finding.\"} when the latest message itself presents an unattributed new subagent finding."
           }
         ]
       },
