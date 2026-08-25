@@ -11,14 +11,26 @@ SESSION_ID=$(echo "$INPUT" | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"
 # Step 6, handing control to the user after 2 failed attempts — by dropping
 # this marker before ending its turn. That stop is intentional, not a bug
 # being left unverified by accident, so it bypasses the test check entirely.
+# TTL-bounded (2 min): the marker has no session/project scoping — SESSION_ID
+# isn't available to the skill's touch call, only to this hook — so an
+# unbounded marker could be consumed by an unrelated Stop event in a different
+# session/project if the hook never ran for the turn that created it. A
+# legitimate handoff is touched and consumed within the same turn transition
+# (seconds), so a short window closes that gap without needing skill-side
+# changes. Past the window, treat it as stale garbage and remove it rather
+# than honoring it.
+VERIFY_COUNTER="${TEMP:-/tmp}/claude-verify-counter-${SESSION_ID:-default}"
 HOLD_MARKER="${TEMP:-/tmp}/claude-bugfix-allow-stop"
 if [ -f "$HOLD_MARKER" ]; then
+  if [ -n "$(find "$HOLD_MARKER" -mmin -2 2>/dev/null)" ]; then
+    rm -f "$HOLD_MARKER"
+    echo "0" > "$VERIFY_COUNTER"
+    exit 0
+  fi
   rm -f "$HOLD_MARKER"
-  exit 0
 fi
 
 # Prevent infinite verification loops using a counter file
-VERIFY_COUNTER="${TEMP:-/tmp}/claude-verify-counter-${SESSION_ID:-default}"
 if [ ! -f "$VERIFY_COUNTER" ]; then
   echo "0" > "$VERIFY_COUNTER"
 fi

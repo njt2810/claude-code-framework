@@ -21,7 +21,8 @@ check() { # check <name> <condition-result>
 cleanup() {
   rm -f "$TMPDIR_BASE/claude-session-monitor-$SID" \
         "$TMPDIR_BASE/claude-edit-tracker-$SID" \
-        "$TMPDIR_BASE/claude-verify-counter-$SID" 2>/dev/null
+        "$TMPDIR_BASE/claude-verify-counter-$SID" \
+        "$TMPDIR_BASE/claude-bugfix-allow-stop" 2>/dev/null
   rm -rf "$WORKDIR" 2>/dev/null
 }
 trap cleanup EXIT
@@ -50,6 +51,7 @@ rm -f package.json
 ! grep -q 'grep -oP' "$HOOKS/verify-before-stop.sh"; check "no grep -P anywhere in verify-before-stop" $?
 
 echo "== verify-before-stop: bug-fix handoff marker =="
+rm -f "$TMPDIR_BASE/claude-bugfix-allow-stop" 2>/dev/null  # defensive: don't depend on ambient state
 MARKER_DIR=$(mktemp -d)
 cd "$MARKER_DIR" || exit 1
 git init -q
@@ -71,6 +73,23 @@ WITH=$?
 [ "$WITH" = "0" ]; check "marker overrides the block and allows stop (got exit $WITH)" $?
 
 [ ! -f "$TMPDIR_BASE/claude-bugfix-allow-stop" ]; check "marker is consumed (removed) after use" $?
+
+echo "0" > "$TMPDIR_BASE/claude-verify-counter-$SID"  # reset before probing the counter-reset behavior in isolation
+touch "$TMPDIR_BASE/claude-bugfix-allow-stop"
+echo "{\"session_id\":\"$SID\"}" | bash "$HOOKS/verify-before-stop.sh" >/dev/null 2>&1
+POST_MARKER_COUNT=$(cat "$TMPDIR_BASE/claude-verify-counter-$SID" 2>/dev/null || echo "unset")
+[ "$POST_MARKER_COUNT" = "0" ]; check "marker consumption resets the verify counter (got $POST_MARKER_COUNT)" $?
+
+rm -f "$TMPDIR_BASE/claude-bugfix-allow-stop"
+touch -d '5 minutes ago' "$TMPDIR_BASE/claude-bugfix-allow-stop" 2>/dev/null
+if [ -f "$TMPDIR_BASE/claude-bugfix-allow-stop" ]; then
+  echo "{\"session_id\":\"$SID\"}" | bash "$HOOKS/verify-before-stop.sh" >/dev/null 2>&1
+  STALE=$?
+  [ "$STALE" = "2" ]; check "stale marker (>2min old) is ignored, not honored (got exit $STALE)" $?
+  [ ! -f "$TMPDIR_BASE/claude-bugfix-allow-stop" ]; check "stale marker is still removed even though not honored" $?
+else
+  echo "  skip: touch -d unsupported on this platform, can't backdate mtime for the stale-marker test"
+fi
 
 cd "$WORKDIR" || exit 1
 rm -rf "$MARKER_DIR"
