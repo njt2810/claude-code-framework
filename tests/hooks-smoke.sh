@@ -30,7 +30,7 @@ cd "$WORKDIR" || exit 1
 
 echo "== loop-detector =="
 OUT=""
-for i in 1 2 3; do
+for _ in 1 2 3; do
   OUT=$(echo "{\"session_id\":\"$SID\",\"tool_input\":{\"file_path\":\"src/app.js\"}}" | bash "$HOOKS/loop-detector.sh")
 done
 echo "$OUT" | grep -q "LOOP WARNING"; check "warns on 3rd edit of same file" $?
