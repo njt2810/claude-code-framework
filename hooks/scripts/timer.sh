@@ -31,7 +31,7 @@ segment_seconds() {
 }
 
 fmt_duration() {
-  local s=$1 m=$(( $1 / 60 ))
+  local m=$(( $1 / 60 ))
   if [ "$m" -ge 60 ]; then echo "$((m/60))h $((m%60))m"; else echo "${m}m"; fi
 }
 

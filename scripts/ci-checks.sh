@@ -10,7 +10,7 @@
 # If neither exists the scrub check is skipped with a warning.
 
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 PASS=0; FAIL=0
 
 check() {

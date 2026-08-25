@@ -21,23 +21,24 @@ check() { # check <name> <condition-result>
 cleanup() {
   rm -f "$TMPDIR_BASE/claude-session-monitor-$SID" \
         "$TMPDIR_BASE/claude-edit-tracker-$SID" \
-        "$TMPDIR_BASE/claude-verify-counter-$SID" 2>/dev/null
+        "$TMPDIR_BASE/claude-verify-counter-$SID" \
+        "$TMPDIR_BASE/claude-bugfix-allow-stop" 2>/dev/null
   rm -rf "$WORKDIR" 2>/dev/null
 }
 trap cleanup EXIT
 
-cd "$WORKDIR"
+cd "$WORKDIR" || exit 1
 
 echo "== loop-detector =="
 OUT=""
-for i in 1 2 3; do
+for _ in 1 2 3; do
   OUT=$(echo "{\"session_id\":\"$SID\",\"tool_input\":{\"file_path\":\"src/app.js\"}}" | bash "$HOOKS/loop-detector.sh")
 done
 echo "$OUT" | grep -q "LOOP WARNING"; check "warns on 3rd edit of same file" $?
 [ -f "$TMPDIR_BASE/claude-edit-tracker-$SID" ]; check "tracker keyed by session_id persists" $?
 
 echo "== session-monitor =="
-for i in 1 2 3; do echo "{\"session_id\":\"$SID\"}" | bash "$HOOKS/session-monitor.sh" >/dev/null; done
+for _ in 1 2 3; do echo "{\"session_id\":\"$SID\"}" | bash "$HOOKS/session-monitor.sh" >/dev/null; done
 COUNT=$(cat "$TMPDIR_BASE/claude-session-monitor-$SID" 2>/dev/null || echo 0)
 [ "$COUNT" = "3" ]; check "counter accumulates across invocations (got $COUNT)" $?
 
@@ -48,6 +49,50 @@ EXTRACT=$(grep -oE '"test"[[:space:]]*:[[:space:]]*"[^"]*"' package.json | head 
 [ "$EXTRACT" = "jest --ci" ]; check "test-command extraction uses portable grep -E" $?
 rm -f package.json
 ! grep -q 'grep -oP' "$HOOKS/verify-before-stop.sh"; check "no grep -P anywhere in verify-before-stop" $?
+
+echo "== verify-before-stop: bug-fix handoff marker =="
+rm -f "$TMPDIR_BASE/claude-bugfix-allow-stop" 2>/dev/null  # defensive: don't depend on ambient state
+MARKER_DIR=$(mktemp -d)
+cd "$MARKER_DIR" || exit 1
+git init -q
+git config user.email "test@test.com"
+git config user.name "test"
+echo "console.log('v1')" > app.js
+git add app.js
+git commit -qm "init"
+echo '{"scripts": {"test": "exit 1"}}' > package.json
+echo "console.log('v2')" > app.js
+
+echo "{\"session_id\":\"$SID\"}" | bash "$HOOKS/verify-before-stop.sh" >/dev/null 2>&1
+WITHOUT=$?
+[ "$WITHOUT" = "2" ]; check "blocks stop when tests fail and no marker present (got exit $WITHOUT)" $?
+
+touch "$TMPDIR_BASE/claude-bugfix-allow-stop"
+echo "{\"session_id\":\"$SID\"}" | bash "$HOOKS/verify-before-stop.sh" >/dev/null 2>&1
+WITH=$?
+[ "$WITH" = "0" ]; check "marker overrides the block and allows stop (got exit $WITH)" $?
+
+[ ! -f "$TMPDIR_BASE/claude-bugfix-allow-stop" ]; check "marker is consumed (removed) after use" $?
+
+echo "0" > "$TMPDIR_BASE/claude-verify-counter-$SID"  # reset before probing the counter-reset behavior in isolation
+touch "$TMPDIR_BASE/claude-bugfix-allow-stop"
+echo "{\"session_id\":\"$SID\"}" | bash "$HOOKS/verify-before-stop.sh" >/dev/null 2>&1
+POST_MARKER_COUNT=$(cat "$TMPDIR_BASE/claude-verify-counter-$SID" 2>/dev/null || echo "unset")
+[ "$POST_MARKER_COUNT" = "0" ]; check "marker consumption resets the verify counter (got $POST_MARKER_COUNT)" $?
+
+rm -f "$TMPDIR_BASE/claude-bugfix-allow-stop"
+touch -d '5 minutes ago' "$TMPDIR_BASE/claude-bugfix-allow-stop" 2>/dev/null
+if [ -f "$TMPDIR_BASE/claude-bugfix-allow-stop" ]; then
+  echo "{\"session_id\":\"$SID\"}" | bash "$HOOKS/verify-before-stop.sh" >/dev/null 2>&1
+  STALE=$?
+  [ "$STALE" = "2" ]; check "stale marker (>2min old) is ignored, not honored (got exit $STALE)" $?
+  [ ! -f "$TMPDIR_BASE/claude-bugfix-allow-stop" ]; check "stale marker is still removed even though not honored" $?
+else
+  echo "  skip: touch -d unsupported on this platform, can't backdate mtime for the stale-marker test"
+fi
+
+cd "$WORKDIR" || exit 1
+rm -rf "$MARKER_DIR"
 
 echo "== pre-compact =="
 echo "{\"session_id\":\"$SID\"}" | bash "$HOOKS/pre-compact.sh" >/dev/null; check "exits 0" $?

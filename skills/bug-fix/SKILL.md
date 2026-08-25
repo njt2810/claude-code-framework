@@ -135,6 +135,10 @@ Say:
  Which approach would you like me to try?"
 ```
 
+Before ending your turn, run: `touch "${TEMP:-/tmp}/claude-bugfix-allow-stop"`
+This tells verify-before-stop.sh this stop is deliberate — you are handing
+control back to the user, not leaving a bug unverified by accident.
+
 Wait for the user to choose. Do NOT continue fixing on your own.
 
 ## Step 7 — REWIND RECOVERY
