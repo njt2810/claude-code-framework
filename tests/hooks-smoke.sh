@@ -26,7 +26,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-cd "$WORKDIR"
+cd "$WORKDIR" || exit 1
 
 echo "== loop-detector =="
 OUT=""
@@ -37,7 +37,7 @@ echo "$OUT" | grep -q "LOOP WARNING"; check "warns on 3rd edit of same file" $?
 [ -f "$TMPDIR_BASE/claude-edit-tracker-$SID" ]; check "tracker keyed by session_id persists" $?
 
 echo "== session-monitor =="
-for i in 1 2 3; do echo "{\"session_id\":\"$SID\"}" | bash "$HOOKS/session-monitor.sh" >/dev/null; done
+for _ in 1 2 3; do echo "{\"session_id\":\"$SID\"}" | bash "$HOOKS/session-monitor.sh" >/dev/null; done
 COUNT=$(cat "$TMPDIR_BASE/claude-session-monitor-$SID" 2>/dev/null || echo 0)
 [ "$COUNT" = "3" ]; check "counter accumulates across invocations (got $COUNT)" $?
 
