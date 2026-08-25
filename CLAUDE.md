@@ -153,13 +153,25 @@ This project uses a development framework with skills, agents, rules, and hooks.
 Type /help to see all available commands.
 
 ## Process Monitoring (NON-NEGOTIABLE)
-- For multi-step tasks, ALWAYS report progress: "Stage X/Y: doing Z..."
-- If a command fails, report the error IMMEDIATELY to the user — do not silently retry
-- If a process exceeds 2 minutes, report status: "Still running: {what's happening}..."
-- If a process exceeds 5 minutes, ask: "This is taking longer than expected. Continue or abort?"
-- NEVER go silent for more than 1 minute without updating the user
-- If you run a bash command and it errors, tell the user what failed and why BEFORE attempting a fix
-- When running multiple commands in sequence, report each one: "Running step 1: {command}... Done. Running step 2: {command}..."
+
+**No unexplained gaps.** That is the rule. It is NOT "post an update every minute" —
+nothing can be emitted while a blocking tool call runs, and a rule that cannot be obeyed
+teaches that the rules in this file are aspirational. The rules below it are not
+(never contact Production; never commit .env). Rewritten 2026-08-12 after five CI waits
+of 11–13 minutes each violated the old wording by construction.
+
+- Say what you are about to run, and WHY, **before** starting a long operation
+- For multi-step tasks, report progress at each step: "Stage X/Y: doing Z..."
+- Use `run_in_background` for anything expected to exceed ~2 minutes, then report the
+  moment it lands. A backgrounded job leaves you free to keep talking; a foreground one
+  does not
+- If a command fails, report the error IMMEDIATELY — do not silently retry
+- If a bash command errors, say what failed and why BEFORE attempting a fix
+- **Ask whether to continue only when an operation is UNEXPECTEDLY long, or was never
+  authorised.** Do not interrupt a long job the user explicitly asked for to ask whether
+  they still want it
+- **NEVER report a result you have not read.** Not the exit code alone, not the green
+  badge — the actual output
 
 ## Long-Running Commands (NON-NEGOTIABLE)
 For any command expected to take more than 2 minutes (npm install, pip install, test suites, builds, deployments), you MUST use the run_in_background flag. While the command runs, report to the user what's happening. When it completes, report immediately.

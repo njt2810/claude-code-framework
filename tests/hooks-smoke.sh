@@ -50,6 +50,17 @@ EXTRACT=$(grep -oE '"test"[[:space:]]*:[[:space:]]*"[^"]*"' package.json | head 
 rm -f package.json
 ! grep -q 'grep -oP' "$HOOKS/verify-before-stop.sh"; check "no grep -P anywhere in verify-before-stop" $?
 
+# --watchAll is Jest-only; passing it to Vitest/Mocha/node:test is a CLI parse
+# error that makes the hook report its own crash as "tests are failing" on
+# every stop. This was fixed once, silently dropped during the v2 rewrite
+# (the fix lived only in the installed ~/.claude copy, never in this repo),
+# and re-merged -- this assertion exists so it can't happen a third time.
+echo '{"scripts": {"test": "vitest run"}}' > package.json
+HAS_TEST=$(grep -oE '"test"[[:space:]]*:[[:space:]]*"[^"]*"' package.json | head -1 | sed 's/.*"test"[[:space:]]*:[[:space:]]*"//;s/"$//')
+if echo "$HAS_TEST" | grep -q "jest"; then SIMULATED_CMD="npm test -- --watchAll=false"; else SIMULATED_CMD="npm test"; fi
+[ "$SIMULATED_CMD" = "npm test" ]; check "non-Jest test runners don't get the Jest-only --watchAll flag" $?
+rm -f package.json
+
 echo "== verify-before-stop: bug-fix handoff marker =="
 rm -f "$TMPDIR_BASE/claude-bugfix-allow-stop" 2>/dev/null  # defensive: don't depend on ambient state
 MARKER_DIR=$(mktemp -d)
