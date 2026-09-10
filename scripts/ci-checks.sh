@@ -61,9 +61,17 @@ echo "     disk=$DISK install.bat=$INSTALL README=$README_CLAIM help=$HELP_CLAIM
 [ "$DISK" = "$INSTALL" ] && [ "$DISK" = "$README_CLAIM" ] && [ "$DISK" = "$HELP_CLAIM" ]
 check "skill counts agree everywhere" $?
 
+# 7 of these are the general delegation team documented in README.md's "Team
+# System" table (Code Reviewer, Test Engineer, Wiki Updater, Security
+# Auditor, Compliance Officer, Knowledge Agent, UI/UX Engineer). The other 2
+# (team-builder, team-verifier) are the framework-rebuild's own lead/builder/
+# verifier delivery-loop roles added in docs/rebuild/BUILD_PLAN.md Part 1.3 --
+# a separate system (see docs/rebuild/DESIGN.md), intentionally not added to
+# README's Team System table since they are not part of that delegation team.
+# If either roster changes, update both this count and its matching docs.
 AGENTS=$(ls agents/*.md 2>/dev/null | wc -l | tr -d ' ')
 RULES=$(ls rules/*.md 2>/dev/null | wc -l | tr -d ' ')
-[ "$AGENTS" = "7" ] && [ "$RULES" = "10" ]
+[ "$AGENTS" = "9" ] && [ "$RULES" = "10" ]
 check "agent/rule counts match documentation (agents=$AGENTS rules=$RULES)" $?
 
 echo "== Personal-identifier scrub =="

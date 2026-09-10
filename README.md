@@ -365,7 +365,12 @@ Key constraints:
 │   ├── security-auditor.md
 │   ├── compliance-officer.md (production-tier projects)
 │   ├── knowledge-agent.md
-│   └── ui-ux-engineer.md     (on-demand)
+│   ├── ui-ux-engineer.md     (on-demand)
+│   └── team-builder.md / team-verifier.md
+│                             2 more role definitions, not part of the
+│                             general delegation team above — they're the
+│                             framework-rebuild's own lead/builder/verifier
+│                             delivery loop (see docs/rebuild/)
 ├── rules/                 ← 10 always-loaded behavioral rules
 │   ├── security.md
 │   ├── capability-gaps.md

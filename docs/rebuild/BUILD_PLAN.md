@@ -1,6 +1,6 @@
 # Phased implementation plan
 
-Status: Part 1.1 is Done (research/decision only — see below); all other implementation parts are Planned. No replacement code or runtime tests are delivered by this documentation PR.
+Status: Part 1.1 is Done (research/decision only — see below); Part 1.2 is Done; Part 1.3 is Partially implemented (see its own status line below); all other implementation parts are Planned. No replacement code or runtime tests are delivered by this documentation PR.
 Read [DESIGN.md](DESIGN.md) first. The team owns validation; the user supplies business decisions and access only when needed.
 
 ## Phase 1: Reliable managed delivery
@@ -10,9 +10,11 @@ Finding: the Claude Agent SDK requires a separate, usage-billed Anthropic API ke
 
 1.2 Implement durable task records and transitions.
 Acceptance: dependencies block premature dispatch; only the local task-state script accepts completion; invalid transitions fail; project state is isolated.
+**Done.** `scripts/team/task-state.sh`, verified against all four acceptance clauses by `tests/task-state-smoke.sh` (60 checks, all passing).
 
 1.3 Implement lead, builder, and verifier invocation via native subagents with explicit skill selection.
 Acceptance: recorded assignments and loaded skill revisions; lead write attempts to application code are denied by the lead subagent's own tool-allowlist configuration and independently caught by the completion-gate script's file-change check (this is a convention-level allowlist plus an independent script check, not a process sandbox — see DESIGN.md); builder cannot modify evidence or task-state script rules through its own allowed tools, and any attempt is caught by the same completion-gate check; verifier receives the agreed requirements and code snapshot.
+**Partially implemented.** Done: `agents/team-builder.md` and `agents/team-verifier.md` (role definitions, each disclosing in its own instructions that its scope restriction is convention/tool-allowlist-level, not a hard sandbox); `scripts/team/assign.sh` (assignment recording -- agent type, per-skill sha256 content hashes as the "loaded skill revision" evidence, timestamp, and for verifier assignments the supplied acceptance criteria and a code snapshot identity) plus the `task-state.sh record-assignment` subcommand it drives, sharing `task-state.sh`'s existing lock/atomic-write path; `tests/assign-smoke.sh` (33 checks, all passing, including a real dirty-vs-clean-tree snapshot check and a skill-hash-changes-when-content-changes check). Deferred to Part 1.4 by design, not a shortfall of this part: the "independently caught by the completion-gate script's file-change check" half of this acceptance line, since the completion-gate script is Part 1.4's own deliverable and does not exist yet. Until 1.4 lands, the scope restrictions in `agents/team-builder.md` and `agents/team-verifier.md` are enforced by agent compliance with their own written instructions only, exactly as DESIGN.md's "Packaging and architecture" section discloses for native subagents generally.
 
 1.4 Implement verification runner and completion gate.
 Acceptance: actual output retained; false reports, no required tests, skipped required checks, and changed code reject completion; acceptance requirements map to evidence. The runner's first check on any claimed file/artifact is to independently open and read that exact path — see "Definition of implementation completion" below.

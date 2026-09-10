@@ -22,8 +22,22 @@
 #   task-state.sh complete <id>
 #   task-state.sh block <id> <reason> [--resume-condition text]
 #   task-state.sh unblock <id>
+#   task-state.sh record-assignment <id> --role builder|verifier --agent-type name
+#                 [--skill-hash path:hash,path:hash,...] [--acceptance-text text]
+#                 [--code-snapshot text]
 #   task-state.sh status <id>
 #   task-state.sh list
+#
+# record-assignment (Part 1.3) appends a durable assignment record to the
+# task's own "assignments" array -- it does NOT change the task's state.
+# It's the mechanism behind scripts/team/assign.sh: durable proof of which
+# agent type, which skill file revisions (by content hash, not just path --
+# a path alone can't tell you whether the skill changed after assignment),
+# and (for verifier assignments) which acceptance criteria and code snapshot
+# a given assignment used. Callers should generally go through assign.sh
+# rather than calling this subcommand directly, since assign.sh is what
+# computes the skill hashes and the code snapshot identity in the first
+# place -- this subcommand just records whatever it's given.
 #
 # States: planned -> building -> checking -> done
 #         (any of planned/building/checking) -> blocked -> (restored state)
@@ -176,7 +190,7 @@ CMD="${1:-}"
 # via a single project-wide lock, held for the command's entire
 # read-modify-write sequence (see acquire_lock() above).
 case "$CMD" in
-  create|start|check|complete|block|unblock) acquire_lock ;;
+  create|start|check|complete|block|unblock|record-assignment) acquire_lock ;;
 esac
 
 case "$CMD" in
@@ -245,7 +259,8 @@ case "$CMD" in
         skills: $skills, risk: $risk, budget: $budget,
         blocked_from: null, blocked_reason: null, resume_condition: null,
         created_at: $now, updated_at: $now,
-        history: [{from: null, to: "planned", at: $now}]
+        history: [{from: null, to: "planned", at: $now}],
+        assignments: []
       }
     '
     echo "CREATED $ID \"$TITLE\" state=planned"
@@ -378,6 +393,108 @@ case "$CMD" in
     echo "UNBLOCKED $ID state=$RESTORE"
     ;;
 
+  record-assignment)
+    ID="${2:-}"
+    [ -n "$ID" ] || {
+      echo "Usage: task-state.sh record-assignment <id> --role builder|verifier --agent-type name [--skill-hash path:hash,path:hash,...] [--acceptance-text text] [--code-snapshot text]" >&2
+      exit 2
+    }
+    if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+
+    ROLE=""; AGENT_TYPE=""; SKILL_HASH=""; ACCEPTANCE=""; SNAPSHOT=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --role) [ $# -ge 2 ] || { echo "ERROR: --role requires a value" >&2; exit 2; }; ROLE="$2"; shift 2 ;;
+        --agent-type) [ $# -ge 2 ] || { echo "ERROR: --agent-type requires a value" >&2; exit 2; }; AGENT_TYPE="$2"; shift 2 ;;
+        --skill-hash) [ $# -ge 2 ] || { echo "ERROR: --skill-hash requires a value" >&2; exit 2; }; SKILL_HASH="$2"; shift 2 ;;
+        --acceptance-text) [ $# -ge 2 ] || { echo "ERROR: --acceptance-text requires a value" >&2; exit 2; }; ACCEPTANCE="$2"; shift 2 ;;
+        --code-snapshot) [ $# -ge 2 ] || { echo "ERROR: --code-snapshot requires a value" >&2; exit 2; }; SNAPSHOT="$2"; shift 2 ;;
+        *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+
+    case "$ROLE" in
+      builder|verifier) ;;
+      *) echo "ERROR: --role must be 'builder' or 'verifier' (got: '$ROLE')" >&2; exit 2 ;;
+    esac
+    [ -n "$AGENT_TYPE" ] || { echo "ERROR: --agent-type is required" >&2; exit 2; }
+
+    # Defense in depth: validate --skill-hash BEFORE ever touching the state
+    # file, even though scripts/team/assign.sh (the normal caller) already
+    # rejects colon-containing skill paths itself. Something could call this
+    # subcommand directly, bypassing assign.sh's check, so this subcommand
+    # must not trust its caller.
+    #
+    # "path:hash,path:hash,..." is parsed below by splitting each entry on
+    # its FIRST colon: skill paths in this repo are POSIX-relative (see
+    # skills/*/SKILL.md and how they're referenced elsewhere in this repo --
+    # never absolute, never Windows-style, so never containing a colon), so
+    # the first colon always separates path from the hex sha256 that follows.
+    # A colon-containing path (e.g. a Windows absolute path like
+    # "C:/fakepath/skill.md", realistic input on this project's primary
+    # platform) would otherwise silently split into garbage instead of
+    # failing -- exactly the silent-corruption bug this validation closes.
+    # An entry with zero colons is still valid (path only, no hash) and
+    # records (path, sha256: null); an entry with exactly one colon is valid
+    # only if the text after it actually looks like a sha256 hex hash --
+    # otherwise that colon is almost certainly part of the path itself, not
+    # a path/hash separator, so it's rejected too. Two or more colons is
+    # always rejected outright.
+    if [ -n "$SKILL_HASH" ]; then
+      IFS=',' read -ra _SKILL_HASH_ENTRIES <<< "$SKILL_HASH"
+      for _entry in "${_SKILL_HASH_ENTRIES[@]}"; do
+        [ -n "$_entry" ] || continue
+        _colon_count=$(awk -F: '{print NF-1}' <<< "$_entry")
+        case "$_colon_count" in
+          0) ;; # path only, no colon -- fine
+          1)
+            _hash_part="${_entry#*:}"
+            if ! [[ "$_hash_part" =~ ^[0-9a-fA-F]+$ ]]; then
+              echo "ERROR: invalid --skill-hash entry '$_entry': skill paths must not contain a colon and must be relative POSIX-style paths (e.g. skills/foo/SKILL.md) -- the text after the colon does not look like a sha256 hash, which usually means the colon is part of the path itself" >&2
+              exit 2
+            fi
+            ;;
+          *)
+            echo "ERROR: invalid --skill-hash entry '$_entry': skill paths must not contain a colon and must be relative POSIX-style paths (e.g. skills/foo/SKILL.md)" >&2
+            exit 2
+            ;;
+        esac
+      done
+    fi
+
+    # require_task exits (before any write) if the state file or task is missing.
+    require_task "$ID" >/dev/null
+
+    # "path:hash,path:hash,..." -> [{path, sha256}, ...]. Split each entry on
+    # its FIRST colon: skill paths in this repo are POSIX-relative (no colons),
+    # so the first colon always separates path from the hex sha256 that follows.
+    # An entry with no colon still records (path, sha256: null) rather than
+    # silently dropping it.
+    SKILLS_JSON=$(jq -R -c '
+      split(",") | map(select(length > 0)) | map(
+        (index(":")) as $i
+        | if $i == null then {path: ., sha256: null}
+          else {path: .[0:$i], sha256: .[($i + 1):]} end
+      )
+    ' <<< "$SKILL_HASH")
+
+    NOW=$(now_iso)
+    atomic_update --arg id "$ID" --arg role "$ROLE" --arg agent_type "$AGENT_TYPE" \
+      --argjson skills "$SKILLS_JSON" --arg now "$NOW" \
+      --arg acceptance "$ACCEPTANCE" --arg snapshot "$SNAPSHOT" '
+      (if $acceptance == "" then null else $acceptance end) as $acceptance_val
+      | (if $snapshot == "" then null else $snapshot end) as $snapshot_val
+      | .tasks[$id].assignments = ((.tasks[$id].assignments // []) + [{
+          role: $role, agent_type: $agent_type, skills: $skills,
+          assigned_at: $now, acceptance_criteria: $acceptance_val,
+          code_snapshot: $snapshot_val
+        }])
+      | .tasks[$id].updated_at = $now
+    '
+    SKILL_COUNT=$(echo "$SKILLS_JSON" | jq 'length')
+    echo "RECORDED-ASSIGNMENT $ID role=$ROLE agent_type=$AGENT_TYPE skills=$SKILL_COUNT"
+    ;;
+
   status)
     ID="${2:-}"
     [ -n "$ID" ] || { echo "Usage: task-state.sh status <id>" >&2; exit 2; }
@@ -418,6 +535,9 @@ Commands:
   complete <id>
   block <id> <reason> [--resume-condition text]
   unblock <id>
+  record-assignment <id> --role builder|verifier --agent-type name
+                     [--skill-hash path:hash,path:hash,...]
+                     [--acceptance-text text] [--code-snapshot text]
   status <id>
   list
 
