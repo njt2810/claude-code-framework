@@ -18,3 +18,6 @@ jobs:
 
       - name: Hook smoke tests
         run: bash tests/hooks-smoke.sh
+
+      - name: Task-state smoke tests
+        run: bash tests/task-state-smoke.sh

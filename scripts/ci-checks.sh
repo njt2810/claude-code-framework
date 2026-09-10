@@ -20,7 +20,7 @@ check() {
 
 echo "== Shell syntax (bash -n) =="
 SYNTAX_OK=0
-for f in hooks/scripts/*.sh tests/*.sh scripts/*.sh; do
+for f in hooks/scripts/*.sh tests/*.sh scripts/*.sh scripts/team/*.sh; do
   bash -n "$f" 2>/dev/null || { echo "     syntax error: $f"; SYNTAX_OK=1; }
 done
 check "all shell scripts parse" $SYNTAX_OK
@@ -28,7 +28,7 @@ check "all shell scripts parse" $SYNTAX_OK
 echo "== Shellcheck (if available) =="
 if command -v shellcheck >/dev/null 2>&1; then
   # Severity=warning: catches real bugs (SC2086 quoting, SC2016) without style noise
-  shellcheck -S warning hooks/scripts/*.sh scripts/*.sh tests/*.sh
+  shellcheck -S warning hooks/scripts/*.sh scripts/*.sh scripts/team/*.sh tests/*.sh
   check "shellcheck clean at warning severity" $?
 else
   echo "  skip: shellcheck not installed"
