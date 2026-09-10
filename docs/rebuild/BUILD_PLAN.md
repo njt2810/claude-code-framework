@@ -1,24 +1,24 @@
 # Phased implementation plan
 
-Status: All implementation parts are Planned. No replacement code or runtime tests are delivered by this documentation PR.
+Status: Part 1.1 is Done (research/decision only — see below); all other implementation parts are Planned. No replacement code or runtime tests are delivered by this documentation PR.
 Read [DESIGN.md](DESIGN.md) first. The team owns validation; the user supplies business decisions and access only when needed.
 
 ## Phase 1: Reliable managed delivery
 
-1.1 Inspect current configuration and resolve the integration contract.
-Acceptance: document supported Claude Code and SDK versions, authentication and billing path, Windows prerequisites, plugin transport, and scope of enforceable restrictions. Inspect local environment when available; unresolved facts remain Unknown. Do not assume subscription coverage.
+1.1 Inspect current configuration and resolve the integration contract. **Done.**
+Finding: the Claude Agent SDK requires a separate, usage-billed Anthropic API key and cannot use the project owner's Claude Max subscription login — confirmed directly against Anthropic's live documentation on 2026-09-10. Decision: the lead/builder/verifier roles are implemented with Claude Code's native subagent mechanism (Agent/Task tool) in-session instead of SDK-dispatched managed sessions through a separate controller process. Full detail, including which secondary claims from the original research were and were not independently re-verified: [PHASE1_1_FINDINGS.md](PHASE1_1_FINDINGS.md). The Windows-specific and plugin-transport findings from that research remain informationally useful (status: worth checking, not confirmed) for how the local scripts in 1.2 onward and the plugin interface in 1.5 should handle paths and process behaviour — but the SDK-specific findings (authentication model, SDK/CLI version coupling) are moot now that the SDK is not adopted.
 
 1.2 Implement durable task records and transitions.
-Acceptance: dependencies block premature dispatch; only the controller accepts completion; invalid transitions fail; project state is isolated.
+Acceptance: dependencies block premature dispatch; only the local task-state script accepts completion; invalid transitions fail; project state is isolated.
 
-1.3 Implement lead, builder, and verifier dispatch with explicit skill selection.
-Acceptance: recorded assignments and loaded skill revisions; lead write attempts denied across exposed tools; builder cannot modify evidence or controller rules; verifier receives the agreed requirements and code snapshot.
+1.3 Implement lead, builder, and verifier invocation via native subagents with explicit skill selection.
+Acceptance: recorded assignments and loaded skill revisions; lead write attempts to application code are denied by the lead subagent's own tool-allowlist configuration and independently caught by the completion-gate script's file-change check (this is a convention-level allowlist plus an independent script check, not a process sandbox — see DESIGN.md); builder cannot modify evidence or task-state script rules through its own allowed tools, and any attempt is caught by the same completion-gate check; verifier receives the agreed requirements and code snapshot.
 
 1.4 Implement verification runner and completion gate.
-Acceptance: actual output retained; false reports, no required tests, skipped required checks, and changed code reject completion; acceptance requirements map to evidence.
+Acceptance: actual output retained; false reports, no required tests, skipped required checks, and changed code reject completion; acceptance requirements map to evidence. The runner's first check on any claimed file/artifact is to independently open and read that exact path — see "Definition of implementation completion" below.
 
 1.5 Implement plugin start and status interface.
-Acceptance: a useful small task passes from assignment to independent verification; progress comes from stored state; output is concise; unmanaged changes invalidate affected results.
+Acceptance: a useful small task passes from assignment to independent verification via native subagent invocation; progress comes from stored state; output is concise; unmanaged changes invalidate affected results.
 
 ## Phase 2: Continuity and recovery
 
@@ -76,6 +76,8 @@ Acceptance: language coverage documented; source revision recorded; stale indexe
 ## Definition of implementation completion
 
 Each part must record actual evidence and remaining limitations. A documentation change, mocked integration, successful import, or agent claim cannot establish end to end runtime readiness. Use automated failure scenarios and targeted real integration checks as engineering work.
+
+No part is marked complete without independently reading every artifact it claims to have produced. This is a hard rule, not a preference: during Part 1.1 research, the dispatched subagent's final report claimed a findings file had been written to `docs/rebuild/PHASE1_1_FINDINGS.md`; the file did not exist anywhere in the repository, and this was only caught because the claim was independently checked rather than taken at face value. Treat a stated file path, a "done" or "written" message, or any other self-report from a builder or subagent as a claim to be checked, never as evidence on its own.
 
 ## First execution instruction
 

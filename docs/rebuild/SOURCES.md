@@ -3,7 +3,7 @@
 Research snapshot: 10 September 2026.
 Scope: repository documentation and selected source inspection, not installed integration testing. Recommendations must be validated during implementation. No upstream code or skills are vendored by this PR.
 
-1. [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python): proposed managed execution adapter. Inspected README and tool configuration types. Explicit tool restrictions are required: allowed_tools alone is not a tool removal mechanism. Confirm applicable terms, authentication, and billing.
+1. [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python): **not adopted.** Originally proposed as the managed execution adapter; inspected README and tool configuration types, which found that explicit tool restrictions are required because allowed_tools alone is not a tool removal mechanism. Rejected on 2026-09-10 because it requires a separate, usage-billed Anthropic API key and cannot use the project owner's Claude Max subscription login — confirmed directly against Anthropic's live documentation, not just the original inspection above. Replacement: Claude Code's native subagent mechanism (Agent/Task tool), run in-session under the existing subscription. Full detail: [PHASE1_1_FINDINGS.md](PHASE1_1_FINDINGS.md).
 2. [Claude Code plugins](https://code.claude.com/docs/en/plugins): supported packaging for skills, agents, hooks, and MCP connections. The proposed team commands still require implementation.
 3. [Addy Osmani Agent Skills](https://github.com/addyosmani/agent-skills): primary procedural source. Select planning, incremental implementation, debugging, review, and adoption. Adapt clarification rules to the user's business decision boundary. Inspected the adoption guide as well as README.
 4. [Superpowers](https://github.com/obra/superpowers): borrow selected delegation, separate review, and verification procedures. Inspected verification-before-completion. Avoid stacking its entire lifecycle with Addy's. Use evidence tied to current code rather than mechanically rerunning every command on each message.
@@ -26,4 +26,6 @@ Pin adopted revisions, preserve notices, record local changes, and evaluate upda
 
 ## Unresolved implementation facts
 
-Confirm SDK authentication and billing, native Windows process management, plugin tool transport, evidence isolation, selected graph export approach, Obsidian vault access, and each target repository's merge and deployment behaviour. Resolve engineering choices autonomously. Escalate only decisions affecting the user's agreed scope, cost, or access.
+SDK authentication and billing is resolved: the Claude Agent SDK is not being used (see item 1 above), so its authentication and billing path is no longer an open question for this project.
+
+Still to confirm: native Windows process management, plugin tool transport, evidence isolation, selected graph export approach, Obsidian vault access, and each target repository's merge and deployment behaviour. Resolve engineering choices autonomously. Escalate only decisions affecting the user's agreed scope, cost, or access.
