@@ -360,6 +360,61 @@ OUT=$(bash "$GATE" happy --bogus-flag 2>&1); RC=$?
 [ "$RC" = "2" ]; check "unknown flag exits 2 (got $RC)" $?
 
 echo ""
+echo "== Part 1.6: .claude/state/ gitignore warning on complete-gate.sh =="
+
+# gated_task_in <dir> <id> -- creates a task in <dir> and drives it through
+# create -> start -> check -> record-evidence (real artifact/output) so the
+# gate can run against it. Independent of the main WORKDIR/task-state()
+# helpers above since these run in their own isolated directories.
+gated_task_in() {
+  local dir="$1" id="$2"
+  ( cd "$dir" && bash "$TASK_STATE" create "$id" "Task $id" ) >/dev/null 2>&1
+  ( cd "$dir" && bash "$TASK_STATE" start "$id" ) >/dev/null 2>&1
+  ( cd "$dir" && bash "$TASK_STATE" check "$id" ) >/dev/null 2>&1
+  echo "real artifact" > "$dir/$id-artifact.txt"
+  echo "real output" > "$dir/$id-output.txt"
+  ( cd "$dir" && bash "$TASK_STATE" record-evidence "$id" --command "echo hi" --exit-code 0 \
+      --tests-total 1 --tests-skipped 0 --output-file "$id-output.txt" --artifact "$id-artifact.txt" ) >/dev/null 2>&1
+}
+
+echo "-- happy path above already ran with .claude/state/ gitignored (this repo's own .gitignore, WORKDIR) --"
+HAPPY_ERR=$(bash "$GATE" already-done 2>&1 1>/dev/null)
+echo "$HAPPY_ERR" | grep -qi "not excluded from 'git status'"
+[ "$?" != "0" ]; check "no gitignore warning in an already-gitignored repo (re-checked against an already-done task, no false positive)" $?
+
+echo "-- .claude/state/ NOT gitignored: warning printed, gate still completes the task normally --"
+WARN_DIR=$(mktemp -d)
+( cd "$WARN_DIR" && git init -q && git config user.email t@t.test && git config user.name t ) >/dev/null 2>&1
+gated_task_in "$WARN_DIR" warn-gate
+ERR_OUT=$(cd "$WARN_DIR" && bash "$GATE" warn-gate 2>&1 1>/dev/null)
+RC_OUT=$(cd "$WARN_DIR" && bash "$TASK_STATE" status warn-gate | jq -r '.state')
+echo "$ERR_OUT" | grep -qi "not excluded from 'git status'"; check "complete-gate.sh warns on stderr when .claude/state/ is not gitignored" $?
+echo "$ERR_OUT" | grep -qi "stale"; check "warning names the spurious-staleness risk" $?
+[ "$RC_OUT" = "done" ]; check "task still reaches done despite the warning (advisory only, not a hard failure)" $?
+rm -rf "$WARN_DIR"
+
+echo "-- .claude/state/ IS gitignored: no warning, no regression --"
+OK_DIR=$(mktemp -d)
+( cd "$OK_DIR" && git init -q && git config user.email t@t.test && git config user.name t ) >/dev/null 2>&1
+echo ".claude/state/" > "$OK_DIR/.gitignore"
+( cd "$OK_DIR" && git add .gitignore && git commit -qm init ) >/dev/null 2>&1
+gated_task_in "$OK_DIR" ok-gate
+ERR_OUT=$(cd "$OK_DIR" && bash "$GATE" ok-gate 2>&1 1>/dev/null)
+RC_OUT=$(cd "$OK_DIR" && bash "$TASK_STATE" status ok-gate | jq -r '.state')
+[ -z "$ERR_OUT" ]; check "no warning printed when .claude/state/ is already gitignored (got: $ERR_OUT)" $?
+[ "$RC_OUT" = "done" ]; check "task reaches done normally when .claude/state/ is gitignored" $?
+rm -rf "$OK_DIR"
+
+echo "-- not inside a git repository at all: no warning, no crash --"
+NOGIT_DIR=$(mktemp -d)
+gated_task_in "$NOGIT_DIR" nogit-gate
+ERR_OUT=$(cd "$NOGIT_DIR" && bash "$GATE" nogit-gate 2>&1 1>/dev/null)
+RC_OUT=$(cd "$NOGIT_DIR" && bash "$TASK_STATE" status nogit-gate | jq -r '.state')
+[ -z "$ERR_OUT" ]; check "no warning printed outside a git repository (got: $ERR_OUT)" $?
+[ "$RC_OUT" = "done" ]; check "task reaches done normally outside a git repository (both snapshots are no-git-repository, so staleness check trivially matches)" $?
+rm -rf "$NOGIT_DIR"
+
+echo ""
 echo "=============================="
 echo "  PASS: $PASS   FAIL: $FAIL"
 echo "=============================="

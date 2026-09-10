@@ -229,6 +229,54 @@ else
   echo "  SKIP: 'timeout' not on PATH, cannot safely bound the concurrency regression test"
 fi
 
+echo "== Part 1.6: .claude/state/ gitignore warning on record-evidence =="
+if ! command -v git >/dev/null 2>&1; then
+  echo "  SKIP: git not on PATH — cannot exercise the gitignore-warning check"
+else
+  echo "-- .claude/state/ NOT gitignored: warning printed, command still succeeds --"
+  WARN_DIR=$(mktemp -d)
+  ( cd "$WARN_DIR" && git init -q && git config user.email t@t.test && git config user.name t ) >/dev/null 2>&1
+  ( cd "$WARN_DIR" && bash "$SCRIPT" create warn-task "Warn task" ) >/dev/null 2>&1
+  echo "real artifact" > "$WARN_DIR/warn-artifact.txt"
+  echo "real output" > "$WARN_DIR/warn-output.txt"
+  ERR_OUT=$(cd "$WARN_DIR" && bash "$SCRIPT" record-evidence warn-task --command "echo hi" --exit-code 0 \
+    --tests-total 1 --tests-skipped 0 --output-file warn-output.txt --artifact warn-artifact.txt 2>&1 1>/dev/null)
+  RC=$?
+  check "record-evidence still exits 0 when .claude/state/ is not gitignored (no hard failure from the warning)" $RC
+  echo "$ERR_OUT" | grep -qi "not excluded from 'git status'"; check "warning printed to stderr when .claude/state/ is not gitignored" $?
+  echo "$ERR_OUT" | grep -qi "stale"; check "warning names the spurious-staleness risk" $?
+  rm -rf "$WARN_DIR"
+
+  echo "-- .claude/state/ IS gitignored: no warning (no regression) --"
+  OK_DIR=$(mktemp -d)
+  ( cd "$OK_DIR" && git init -q && git config user.email t@t.test && git config user.name t ) >/dev/null 2>&1
+  echo ".claude/state/" > "$OK_DIR/.gitignore"
+  ( cd "$OK_DIR" && git add .gitignore && git commit -qm init ) >/dev/null 2>&1
+  ( cd "$OK_DIR" && bash "$SCRIPT" create ok-task "OK task" ) >/dev/null 2>&1
+  echo "real artifact" > "$OK_DIR/ok-artifact.txt"
+  echo "real output" > "$OK_DIR/ok-output.txt"
+  ERR_OUT=$(cd "$OK_DIR" && bash "$SCRIPT" record-evidence ok-task --command "echo hi" --exit-code 0 \
+    --tests-total 1 --tests-skipped 0 --output-file ok-output.txt --artifact ok-artifact.txt 2>&1 1>/dev/null)
+  RC=$?
+  check "record-evidence exits 0 when .claude/state/ is gitignored" $RC
+  [ -z "$ERR_OUT" ]; check "no warning printed to stderr when .claude/state/ is already gitignored (got: $ERR_OUT)" $?
+  rm -rf "$OK_DIR"
+
+  echo "-- not inside a git repository at all: no warning, no crash --"
+  NOGIT_DIR=$(mktemp -d)
+  ( cd "$NOGIT_DIR" && bash "$SCRIPT" create nogit-task "No-git task" ) >/dev/null 2>&1
+  echo "real artifact" > "$NOGIT_DIR/nogit-artifact.txt"
+  echo "real output" > "$NOGIT_DIR/nogit-output.txt"
+  ERR_OUT=$(cd "$NOGIT_DIR" && bash "$SCRIPT" record-evidence nogit-task --command "echo hi" --exit-code 0 \
+    --tests-total 1 --tests-skipped 0 --output-file nogit-output.txt --artifact nogit-artifact.txt 2>&1 1>/dev/null)
+  RC=$?
+  check "record-evidence exits 0 outside a git repository (no crash)" $RC
+  [ -z "$ERR_OUT" ]; check "no warning printed to stderr outside a git repository (got: $ERR_OUT)" $?
+  SNAP=$(cd "$NOGIT_DIR" && bash "$SCRIPT" status nogit-task | jq -r '.evidence[-1].code_snapshot')
+  [ "$SNAP" = "no-git-repository" ]; check "code_snapshot correctly records no-git-repository outside a git repo (got: $SNAP)" $?
+  rm -rf "$NOGIT_DIR"
+fi
+
 echo ""
 echo "=============================="
 echo "  PASS: $PASS   FAIL: $FAIL"

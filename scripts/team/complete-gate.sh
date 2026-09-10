@@ -136,6 +136,57 @@ gate_fail() {
   exit 1
 }
 
+# warn_if_state_not_gitignored -- Part 1.6. Prints ONE advisory warning to
+# stderr (never fails the run) if the current directory is a git repository
+# AND .claude/state/ is not excluded from `git status` in it. This is purely
+# advisory: it must never block a legitimate gate run, so it never affects
+# this script's exit code.
+#
+# The risk it names: compute_snapshot() below (and task-state.sh's identical
+# copy) hashes `git status --porcelain` / `git diff HEAD` output to build the
+# dirty-tree code_snapshot identity. If .claude/state/ is not gitignored,
+# task-state.sh's own bookkeeping writes to .claude/state/team-tasks.json
+# (including the very evidence-write that triggered this check) show up as
+# tracked/untracked changes and get hashed into that snapshot too -- so the
+# snapshot recorded at evidence time and the snapshot recomputed here at gate
+# time can differ EVEN THOUGH NO REAL CODE CHANGED, causing check 6 to reject
+# genuinely-fresh evidence as stale. See compute_snapshot()'s own comment
+# below and task-state.sh's identical copy for the fuller explanation.
+#
+# "one-time-per-run": guarded by _STATE_GITIGNORE_WARNED so repeated calls in
+# one script invocation (this script currently calls it once, but the guard
+# keeps that safe if that ever changes) only ever print once. Keep this
+# function's detection logic and wording identical to task-state.sh's copy.
+_STATE_GITIGNORE_WARNED=""
+warn_if_state_not_gitignored() {
+  [ -n "$_STATE_GITIGNORE_WARNED" ] && return
+  _STATE_GITIGNORE_WARNED=1
+
+  # Not a git repository at all -> nothing to warn about (git rev-parse
+  # exits non-zero with a "not a git repository" fatal on stderr in that
+  # case; discard it, this is a routine, expected outcome here, not an
+  # error).
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return
+
+  # `git check-ignore -q PATH` exits 0 if PATH is excluded (ignored), 1 if
+  # it is not excluded, and >1 on a real error. Query a path CLEARLY NESTED
+  # under .claude/state/ (not the bare directory name) -- a directory-only
+  # gitignore pattern like ".claude/state/" only reliably matches through
+  # check-ignore once something actually exists at or under that path; a
+  # bare, not-yet-existing .claude/state directory can spuriously report
+  # exit 1 ("not ignored") even when the pattern would in fact ignore it
+  # once created. A nested probe path sidesteps this regardless of whether
+  # .claude/state itself exists yet. Only the "not excluded" case (exit
+  # exactly 1) should warn -- a real error (e.g. run outside a usable work
+  # tree, such as a bare repository) means we can't determine the answer,
+  # so stay silent rather than guessing.
+  git check-ignore -q .claude/state/.gitcheck-probe 2>/dev/null
+  rc=$?
+  if [ "$rc" -eq 1 ]; then
+    echo "WARNING: .claude/state/ is not excluded from 'git status' in this repository. task-state.sh's own bookkeeping writes to .claude/state/team-tasks.json will then show up as tracked/untracked changes and get hashed into compute_snapshot()'s dirty-tree code_snapshot identity, which can make genuinely-fresh evidence look stale (spurious 'evidence is stale' failures in complete-gate.sh's check 6) even though no real code changed. Fix: add '.claude/state/' to this repository's .gitignore." >&2
+  fi
+}
+
 # Code snapshot identity: short commit SHA when the tree is clean, or
 # "uncommitted, base SHA X, diff Y" when it is dirty, where Y is a short
 # prefix of a sha256 hash over the ACTUAL dirty content -- tracked changes
@@ -189,6 +240,9 @@ compute_snapshot() {
     echo "$sha"
   fi
 }
+
+# Part 1.6 advisory check, run before any of the gate's normal work below.
+warn_if_state_not_gitignored
 
 # ---- Check 1: task exists and is in "checking" state. ----
 STATUS_OUT=$(bash "$TASK_STATE" status "$TASK_ID" 2>&1)
