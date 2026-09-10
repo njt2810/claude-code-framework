@@ -22,6 +22,11 @@
 #   task-state.sh complete <id>
 #   task-state.sh block <id> <reason> [--resume-condition text]
 #   task-state.sh unblock <id>
+#   task-state.sh pause <id> --next-action "<exact next action text>"
+#   task-state.sh resume <id>
+#   task-state.sh record-external-action <id> --key <idempotency-key>
+#                 --description "<what was done>"
+#   task-state.sh check-external-action <id> --key <idempotency-key>
 #   task-state.sh record-assignment <id> --role builder|verifier --agent-type name
 #                 [--skill-hash path:hash,path:hash,...] [--acceptance-text text]
 #                 [--code-snapshot text]
@@ -64,12 +69,135 @@
 # complete-gate.sh happens to be invoked from, which can differ from the
 # directory evidence was recorded from.
 #
+# pause/resume + checkpoints (Part 2.1) implement DESIGN.md's "Wrap up and
+# resume": "Pause stops new dispatch, safely handles current activity, and
+# persists state. Resume checks actual code and external action state before
+# continuing."
+#
+# `pause` is deliberately shaped exactly like `block` -- allowed only from
+# planned/building/checking, records the state it came from (`paused_from`,
+# the mirror of `blocked_from`), and `resume` restores that exact state the
+# way `unblock` does. The difference from block/unblock is WHY it exists:
+# block records an external obstacle, pause records a deliberate stop with a
+# durable "here is exactly what to do next" note. `--next-action` is
+# therefore REQUIRED, not optional -- a pause with no recorded next action
+# cannot satisfy "restart restores the exact next action", which is the whole
+# point of the mechanism.
+#
+# Each pause appends a record to the task's own `checkpoints` array:
+# {next_action, code_snapshot, paused_from, paused_at}. It is an ARRAY, not a
+# single field, so repeated pause/resume cycles keep their full history
+# rather than each one destroying the last.
+#
+# `resume` does three things beyond restoring the state, and all three are
+# part of the contract:
+#   1. It prints the recorded next action VERBATIM, so a restarted session
+#      gets back the exact next action rather than a paraphrase.
+#   2. It CHECKS CURRENT CODE: it recomputes the code snapshot live and
+#      compares it against the latest checkpoint's recorded code_snapshot.
+#      On a mismatch it prints a prominent warning naming BOTH snapshots and
+#      saying the recorded next action may no longer be valid. It does NOT
+#      refuse to resume on drift -- resuming is still the right outcome; the
+#      point is that drift is surfaced rather than silently ignored. On a
+#      match it says so explicitly too, so a caller never has to wonder
+#      whether the check actually ran.
+#   3. It DURABLY RECORDS that verdict, not just prints it: the history entry
+#      `resume` appends carries `drift_detected` (boolean), `pause_snapshot`
+#      and `resume_snapshot` alongside the usual from/to/at. Printing alone
+#      would not satisfy this subsystem's own founding principle (see this
+#      file's opening comment) that only durably-recorded state counts --
+#      stdout can be swallowed by a pipe or never captured, leaving nothing
+#      able to prove afterwards whether drift was seen at that resume. The
+#      printed output is unchanged; the record is purely additive to it.
+#
+# External-action idempotency (also Part 2.1) implements DESIGN.md's "Each
+# step has an idempotency key so retrying wrap up does not duplicate a PR,
+# note, or external action." Completed external actions are recorded in the
+# task's own `external_actions` array as {key, description, recorded_at}, and
+# a caller consults that array BEFORE performing an external action again.
+#
+#   record-external-action <id> --key K --description "..."
+#     Appends {key, description, recorded_at}. If K is ALREADY recorded for
+#     this task it does NOT append a duplicate and EXITS 0, printing that it
+#     was already recorded. Rationale for exit 0 rather than an error:
+#     re-recording an already-done action is a no-op SUCCESS from the
+#     caller's point of view -- the desired end state ("this action is
+#     recorded as done exactly once") already holds. Making it an error would
+#     push callers to write `|| true` around it, which would then also
+#     swallow genuine failures like a missing task. This is consistent with
+#     check-external-action below, where "already recorded" is likewise 0.
+#     Because both outcomes exit 0, the two are told apart by the OUTPUT's
+#     distinct leading word -- "RECORDED-EXTERNAL-ACTION" (newly recorded by
+#     this call) vs "ALREADY-RECORDED" (someone got there first). That
+#     distinction is load-bearing: it is what makes the record-first idiom
+#     below writable, so do not blur those two words.
+#
+#   check-external-action <id> --key K
+#     READ-ONLY (it takes no lock and never writes). It answers exactly one
+#     question -- "is this key already recorded for this task?" -- and it
+#     answers it with its EXIT STATUS. That is easy to get backwards, and
+#     backwards is exactly the duplicate-PR bug this exists to prevent, so
+#     the full four-code contract is spelled out here:
+#       EXIT 0 => CONFIRMED RECORDED     => SKIP the action, it is already done.
+#       EXIT 1 => CONFIRMED NOT RECORDED => PROCEED with the action.
+#       EXIT 2 => BAD USAGE (e.g. no --key) => UNDETERMINED, do NOT proceed.
+#       EXIT 3 => THE TASK DOES NOT EXIST   => UNDETERMINED, do NOT proceed;
+#                 fix the task id and re-check.
+#     NONZERO NEVER MEANS "ALREADY DONE". That is the direction that matters
+#     for safety and it holds for every nonzero code above.
+#     Mnemonic: 0 means "nothing left to do".
+#     Exit 3 exists because 1 and "task not found" used to collide: a typo'd
+#     task id was then indistinguishable from "not recorded, go ahead", so a
+#     caller branching on exit status -- the natural shell idiom, and the one
+#     these very docs teach -- would silently PROCEED on a typo and cause the
+#     duplicate this subcommand exists to prevent. The two failure directions
+#     are asymmetrically costly: a hard error on a bad id is cheap and
+#     recoverable, a false PROCEED creates a real external side effect that
+#     nothing here rolls back. This is a DELIBERATE local divergence: every
+#     other subcommand here reports a missing task as a plain error via
+#     require_task and exits 1, which is correct there because no other
+#     subcommand's exit status is a SKIP/PROCEED signal a script branches on.
+#     All four cases also print a distinguishing line -- ALREADY-RECORDED
+#     .../SKIP, NOT-RECORDED .../PROCEED, or an ERROR naming the bad usage or
+#     the unknown task id -- so a caller reading output rather than only the
+#     exit status can tell them apart too.
+#
+# WHICH IDIOM TO USE -- record-first is SAFE, check-then-act is ADVISORY ONLY.
+# check-external-action is itself free of torn reads, but the natural sequence
+# check -> perform the external action -> record is NOT atomic AS A SEQUENCE:
+# the side effect happens outside this script's control, in the window between
+# the check and the record. Two concurrent callers can both see PROCEED and
+# both act, with record-external-action only deduping afterwards -- by which
+# point two PRs exist.
+#
+#   RECORD-FIRST (safe). Call record-external-action BEFORE performing the
+#   action, and branch on its OUTPUT rather than its exit status (both cases
+#   exit 0 by design, see above); the two cases are distinguished by distinct,
+#   greppable leading words:
+#     "RECORDED-EXTERNAL-ACTION ..." => you newly recorded it  => DO the action.
+#     "ALREADY-RECORDED ..."         => someone already had it => SKIP it.
+#   That test-and-append runs inside the single exclusive lock, so of any
+#   number of concurrent callers exactly one can ever get the newly-recorded
+#   result. It fails toward "skipped" (a crash between the record and the
+#   action leaves it recorded but not performed), never toward "duplicated".
+#   Use it whenever the action is genuinely externally visible and
+#   non-idempotent -- opening a PR, posting a note, sending mail.
+#
+#   CHECK-THEN-ACT (advisory). Fine when the action is cheap or idempotent
+#   anyway so a duplicate costs nothing, or when the caller is strictly
+#   sequential and no concurrent caller can exist. Never use it as the only
+#   guard on a non-idempotent external side effect under concurrency.
+#
 # States: planned -> building -> checking -> done
 #         (any of planned/building/checking) -> blocked -> (restored state)
+#         (any of planned/building/checking) -> paused  -> (restored state)
 #
 # Exit codes: 0 ok
 #             1 invalid transition / not found / duplicate id / unmet dependency
+#               (also: check-external-action's "key NOT recorded, PROCEED")
 #             2 bad usage / missing jq dependency
+#             3 check-external-action ONLY: the task does not exist, so
+#               "already recorded?" could not be determined -- do NOT proceed
 #
 # Every transition is atomic: written to a temp file in the same directory as
 # the state file, then mv'd into place — no command can leave the state file
@@ -78,7 +206,8 @@
 # records an ISO-8601 timestamp and appends an entry to that task's own
 # transition history array.
 #
-# Every mutating command (create/start/check/complete/block/unblock) also
+# Every mutating command (create/start/check/complete/block/unblock/pause/
+# resume/record-assignment/record-evidence/record-external-action) also
 # holds an exclusive lock across its ENTIRE read-modify-write sequence — not
 # just the final atomic_update write — so concurrent invocations (e.g. a lead
 # plus several builder/verifier subagents all touching the same project's
@@ -361,8 +490,12 @@ CMD="${1:-}"
 # Every mutating command is serialized against every other mutating command
 # via a single project-wide lock, held for the command's entire
 # read-modify-write sequence (see acquire_lock() above).
+#
+# `check-external-action` is deliberately ABSENT from this list: it is
+# strictly read-only (it never calls atomic_update) so it needs no lock, and
+# taking one would let a read-only idempotency probe block real work.
 case "$CMD" in
-  create|start|check|complete|block|unblock|record-assignment|record-evidence) acquire_lock ;;
+  create|start|check|complete|block|unblock|pause|resume|record-assignment|record-evidence|record-external-action) acquire_lock ;;
 esac
 
 case "$CMD" in
@@ -430,10 +563,13 @@ case "$CMD" in
         depends_on: $depends, builder: $builder_val, verifier: $verifier_val,
         skills: $skills, risk: $risk, budget: $budget,
         blocked_from: null, blocked_reason: null, resume_condition: null,
+        paused_from: null,
         created_at: $now, updated_at: $now,
         history: [{from: null, to: "planned", at: $now}],
         assignments: [],
-        evidence: []
+        evidence: [],
+        checkpoints: [],
+        external_actions: []
       }
     '
     echo "CREATED $ID \"$TITLE\" state=planned"
@@ -564,6 +700,244 @@ case "$CMD" in
       | .tasks[$id].history += [{from: "blocked", to: $restore, at: $now}]
     '
     echo "UNBLOCKED $ID state=$RESTORE"
+    ;;
+
+  pause)
+    ID="${2:-}"
+    [ -n "$ID" ] || {
+      echo "Usage: task-state.sh pause <id> --next-action \"<exact next action text>\"" >&2
+      exit 2
+    }
+    if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+
+    NEXT_ACTION=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --next-action) [ $# -ge 2 ] || { echo "ERROR: --next-action requires a value" >&2; exit 2; }; NEXT_ACTION="$2"; shift 2 ;;
+        *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+
+    # REQUIRED, not optional. See this file's header: a pause with no
+    # recorded next action cannot satisfy "restart restores the exact next
+    # action", so accepting one would quietly defeat the mechanism. Checked
+    # before require_task and before any write, so a rejected pause leaves
+    # the state file byte-for-byte unchanged.
+    [ -n "$NEXT_ACTION" ] || {
+      echo "ERROR: --next-action is required (a pause with no recorded next action cannot restore an exact next action on resume)" >&2
+      exit 2
+    }
+
+    CUR_STATE=$(require_task "$ID")
+    case "$CUR_STATE" in
+      planned|building|checking) ;;
+      paused)
+        echo "ERROR: task '$ID' is already paused; run 'task-state.sh resume $ID' before pausing it again" >&2
+        exit 1
+        ;;
+      *)
+        echo "ERROR: task '$ID' is in state '$CUR_STATE', cannot pause from this state (must be one of planned, building, checking)" >&2
+        exit 1
+        ;;
+    esac
+
+    # Snapshot the code AS IT IS AT PAUSE TIME. `resume` recomputes this live
+    # and compares, which is how "resume checks actual code" is implemented.
+    SNAPSHOT=$(compute_snapshot)
+    NOW=$(now_iso)
+    atomic_update --arg id "$ID" --arg now "$NOW" --arg from "$CUR_STATE" \
+      --arg next_action "$NEXT_ACTION" --arg snapshot "$SNAPSHOT" '
+      .tasks[$id].paused_from = $from
+      | .tasks[$id].state = "paused"
+      | .tasks[$id].updated_at = $now
+      | .tasks[$id].checkpoints = ((.tasks[$id].checkpoints // []) + [{
+          next_action: $next_action,
+          code_snapshot: $snapshot,
+          paused_from: $from,
+          paused_at: $now
+        }])
+      | .tasks[$id].history += [{from: $from, to: "paused", at: $now, next_action: $next_action}]
+    '
+    echo "PAUSED $ID from=$CUR_STATE snapshot=\"$SNAPSHOT\""
+    echo "NEXT ACTION: $NEXT_ACTION"
+    ;;
+
+  resume)
+    ID="${2:-}"
+    [ -n "$ID" ] || { echo "Usage: task-state.sh resume <id>" >&2; exit 2; }
+    CUR_STATE=$(require_task "$ID")
+    if [ "$CUR_STATE" != "paused" ]; then
+      echo "ERROR: task '$ID' is in state '$CUR_STATE', not paused" >&2
+      exit 1
+    fi
+
+    RESTORE=$(jq -r --arg id "$ID" '.tasks[$id].paused_from // "missing"' "$STATE")
+    if [ "$RESTORE" = "missing" ] || [ -z "$RESTORE" ]; then
+      echo "ERROR: task '$ID' has no recorded prior state to restore to" >&2
+      exit 1
+    fi
+
+    # Read the LATEST checkpoint. `pause` is the only way into the paused
+    # state and it always appends a checkpoint, so an empty array here means
+    # the state file was tampered with by hand; refuse rather than resume
+    # without the next action that gives resume its point.
+    CP_COUNT=$(jq --arg id "$ID" '(.tasks[$id].checkpoints // []) | length' "$STATE")
+    if [ "$CP_COUNT" -eq 0 ]; then
+      echo "ERROR: task '$ID' is paused but has no checkpoint recorded, so the exact next action cannot be restored" >&2
+      exit 1
+    fi
+    # Read these straight from the state file in a single-scalar command
+    # substitution (not through a pipe) -- the same pattern the rest of this
+    # script uses, and the one complete-gate.sh documents as unaffected by
+    # MSYS/Git Bash's CRLF-on-piped-jq behaviour.
+    CP_NEXT_ACTION=$(jq -r --arg id "$ID" '.tasks[$id].checkpoints[-1].next_action // ""' "$STATE")
+    CP_SNAPSHOT=$(jq -r --arg id "$ID" '.tasks[$id].checkpoints[-1].code_snapshot // ""' "$STATE")
+
+    # "Resume checks actual code": recompute live, right now, rather than
+    # trusting anything cached.
+    CURRENT_SNAPSHOT=$(compute_snapshot)
+
+    # The drift verdict is DURABLY RECORDED, not merely printed. See this
+    # file's header (resume contract, point 3): only durably-recorded state
+    # counts here, and a verdict living solely in stdout can be swallowed by
+    # a pipe, leaving nothing able to prove afterwards whether drift was seen
+    # at this resume. Both snapshots are stored alongside the boolean so the
+    # verdict can be re-derived and audited, not just trusted.
+    if [ "$CP_SNAPSHOT" = "$CURRENT_SNAPSHOT" ]; then
+      DRIFT_DETECTED=false
+    else
+      DRIFT_DETECTED=true
+    fi
+
+    NOW=$(now_iso)
+    atomic_update --arg id "$ID" --arg now "$NOW" --arg restore "$RESTORE" \
+      --argjson drift "$DRIFT_DETECTED" --arg pause_snap "$CP_SNAPSHOT" \
+      --arg resume_snap "$CURRENT_SNAPSHOT" '
+      .tasks[$id].state = $restore
+      | .tasks[$id].updated_at = $now
+      | .tasks[$id].paused_from = null
+      | .tasks[$id].history += [{
+          from: "paused", to: $restore, at: $now,
+          drift_detected: $drift,
+          pause_snapshot: $pause_snap,
+          resume_snapshot: $resume_snap
+        }]
+    '
+    echo "RESUMED $ID state=$RESTORE"
+    echo "NEXT ACTION: $CP_NEXT_ACTION"
+    # Drift is SURFACED, never silent -- but it is also never a refusal to
+    # resume: resuming is still the right outcome, the caller just has to
+    # know the ground moved. The match case prints too, so a caller is never
+    # left guessing whether the check actually ran.
+    if [ "$CP_SNAPSHOT" = "$CURRENT_SNAPSHOT" ]; then
+      echo "CODE CHECK: OK — code is unchanged since the pause (snapshot: $CURRENT_SNAPSHOT). The recorded next action was written against exactly this code."
+    else
+      echo "CODE CHECK: *** WARNING — THE CODE CHANGED WHILE THIS TASK WAS PAUSED ***"
+      echo "  snapshot at pause: $CP_SNAPSHOT"
+      echo "  snapshot now:      $CURRENT_SNAPSHOT"
+      echo "  The recorded next action above may no longer be valid, because the code moved while the task was paused. Re-check the current code against that next action before acting on it."
+    fi
+    ;;
+
+  record-external-action)
+    ID="${2:-}"
+    [ -n "$ID" ] || {
+      echo "Usage: task-state.sh record-external-action <id> --key <idempotency-key> --description \"<what was done>\"" >&2
+      exit 2
+    }
+    if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+
+    EA_KEY=""; EA_DESC=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --key) [ $# -ge 2 ] || { echo "ERROR: --key requires a value" >&2; exit 2; }; EA_KEY="$2"; shift 2 ;;
+        --description) [ $# -ge 2 ] || { echo "ERROR: --description requires a value" >&2; exit 2; }; EA_DESC="$2"; shift 2 ;;
+        *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+
+    [ -n "$EA_KEY" ] || { echo "ERROR: --key is required" >&2; exit 2; }
+    [ -n "$EA_DESC" ] || { echo "ERROR: --description is required" >&2; exit 2; }
+
+    require_task "$ID" >/dev/null
+
+    # Idempotency: if this key is already recorded for this task, do NOT
+    # append a second entry. Exit 0 -- see this file's header for why an
+    # already-done action is a no-op SUCCESS rather than an error.
+    EA_EXISTING=$(jq -r --arg id "$ID" --arg key "$EA_KEY" '
+      (.tasks[$id].external_actions // [])
+      | map(select(.key == $key))
+      | if length == 0 then "" else (.[0].recorded_at // "unknown time") end
+    ' "$STATE")
+    if [ -n "$EA_EXISTING" ]; then
+      echo "ALREADY-RECORDED $ID key=$EA_KEY (first recorded at $EA_EXISTING) — not appended again; this external action is already done, do NOT repeat it"
+      exit 0
+    fi
+
+    NOW=$(now_iso)
+    atomic_update --arg id "$ID" --arg now "$NOW" --arg key "$EA_KEY" --arg desc "$EA_DESC" '
+      .tasks[$id].external_actions = ((.tasks[$id].external_actions // []) + [{
+          key: $key, description: $desc, recorded_at: $now
+        }])
+      | .tasks[$id].updated_at = $now
+    '
+    echo "RECORDED-EXTERNAL-ACTION $ID key=$EA_KEY description=\"$EA_DESC\""
+    ;;
+
+  check-external-action)
+    # READ-ONLY: takes no lock, never writes.
+    # EXIT 0 => CONFIRMED RECORDED     => caller must SKIP the action.
+    # EXIT 1 => CONFIRMED NOT RECORDED => caller must PROCEED with the action.
+    # EXIT 2 => bad usage              => UNDETERMINED, caller must NOT proceed.
+    # EXIT 3 => task does not exist    => UNDETERMINED, caller must NOT
+    #           proceed; fix the task id and re-check.
+    # NONZERO NEVER MEANS "ALREADY DONE". Getting this backwards causes
+    # exactly the duplicate-PR/duplicate-note problem this exists to prevent;
+    # see this file's header, including why record-first rather than
+    # check-then-act is the safe idiom under concurrency.
+    ID="${2:-}"
+    [ -n "$ID" ] || {
+      echo "Usage: task-state.sh check-external-action <id> --key <idempotency-key>" >&2
+      exit 2
+    }
+    if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+
+    EA_KEY=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --key) [ $# -ge 2 ] || { echo "ERROR: --key requires a value" >&2; exit 2; }; EA_KEY="$2"; shift 2 ;;
+        *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+    [ -n "$EA_KEY" ] || { echo "ERROR: --key is required" >&2; exit 2; }
+
+    # Task existence is checked HERE, ahead of require_task, for one reason:
+    # so a missing task exits 3 rather than require_task's 1. Exit 1 is this
+    # subcommand's "confirmed not recorded, PROCEED" answer, so letting a
+    # typo'd task id land on it would make an unknown task look exactly like
+    # a green light to perform the external action. require_task itself is
+    # deliberately left untouched -- its exit 1 is correct and established
+    # for every other subcommand, where "not found" is a plain error and not
+    # a signal any script branches on. require_task still runs immediately
+    # below, so nothing about the not-found path is bypassed; this check only
+    # gets there first with a more specific exit code and message.
+    if [ ! -f "$STATE" ] || [ "$(task_state_of "$ID")" = "missing" ]; then
+      echo "ERROR: task '$ID' not found — cannot determine whether external action key '$EA_KEY' has already been recorded. Do NOT proceed with the external action (exit 3 is NOT the 'PROCEED' answer, exit 1 is); fix the task id and re-check." >&2
+      exit 3
+    fi
+    require_task "$ID" >/dev/null
+
+    EA_FOUND=$(jq -r --arg id "$ID" --arg key "$EA_KEY" '
+      (.tasks[$id].external_actions // [])
+      | map(select(.key == $key))
+      | if length == 0 then "" else (.[0].recorded_at // "unknown time") end
+    ' "$STATE")
+    if [ -n "$EA_FOUND" ]; then
+      echo "ALREADY-RECORDED $ID key=$EA_KEY (recorded at $EA_FOUND) — SKIP this external action, it has already been performed"
+      exit 0
+    fi
+    echo "NOT-RECORDED $ID key=$EA_KEY — PROCEED with this external action, it has not been performed yet"
+    exit 1
     ;;
 
   record-assignment)
@@ -822,6 +1196,10 @@ Commands:
   complete <id>
   block <id> <reason> [--resume-condition text]
   unblock <id>
+  pause <id> --next-action "<exact next action text>"
+  resume <id>
+  record-external-action <id> --key <idempotency-key> --description "<what was done>"
+  check-external-action <id> --key <idempotency-key>
   record-assignment <id> --role builder|verifier --agent-type name
                      [--skill-hash path:hash,path:hash,...]
                      [--acceptance-text text] [--code-snapshot text]
@@ -831,8 +1209,29 @@ Commands:
   status <id>
   list
 
+States: planned -> building -> checking -> done
+        (any of planned/building/checking) -> blocked -> (restored state)
+        (any of planned/building/checking) -> paused  -> (restored state)
+
 Exit codes: 0 ok · 1 invalid transition / not found / duplicate id / unmet dependency
             2 bad usage / missing jq dependency
+            3 check-external-action ONLY: the task does not exist (see below)
+
+check-external-action answers "is this key already recorded?" with its exit
+status, and it is easy to get backwards:
+  EXIT 0 = CONFIRMED RECORDED         -> SKIP the action, it is already done.
+  EXIT 1 = CONFIRMED NOT RECORDED     -> PROCEED with the action.
+  EXIT 2 = bad usage (e.g. no --key)  -> UNDETERMINED, do NOT proceed.
+  EXIT 3 = the task does not exist    -> UNDETERMINED, do NOT proceed; fix
+           the task id and re-check.
+NONZERO NEVER MEANS "ALREADY DONE".
+
+For an externally visible, non-idempotent action (opening a PR, posting a
+note) under any concurrency, prefer the record-first idiom: call
+record-external-action BEFORE performing the action and branch on its OUTPUT
+("RECORDED-EXTERNAL-ACTION" = you newly recorded it, so do the action;
+"ALREADY-RECORDED" = skip it). That test-and-append is atomic under the lock;
+check-then-act is advisory only. See this script's file header.
 USAGE
     exit 2
     ;;
