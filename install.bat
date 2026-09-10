@@ -15,6 +15,7 @@ if not exist "%CLAUDE_HOME%\agents" mkdir "%CLAUDE_HOME%\agents"
 if not exist "%CLAUDE_HOME%\rules" mkdir "%CLAUDE_HOME%\rules"
 if not exist "%CLAUDE_HOME%\hooks\scripts" mkdir "%CLAUDE_HOME%\hooks\scripts"
 if not exist "%CLAUDE_HOME%\scripts" mkdir "%CLAUDE_HOME%\scripts"
+if not exist "%CLAUDE_HOME%\scripts\team" mkdir "%CLAUDE_HOME%\scripts\team"
 if not exist "%CLAUDE_HOME%\logs" mkdir "%CLAUDE_HOME%\logs"
 if not exist "%CLAUDE_HOME%\templates\wiki\decisions" mkdir "%CLAUDE_HOME%\templates\wiki\decisions"
 if not exist "%CLAUDE_HOME%\templates\wiki\runbooks" mkdir "%CLAUDE_HOME%\templates\wiki\runbooks"
@@ -50,7 +51,10 @@ echo    Hook scripts and settings installed.
 
 echo [6/9] Installing utility scripts...
 copy /Y "hooks\scripts\timed-run.sh" "%CLAUDE_HOME%\scripts\timed-run.sh" >nul 2>&1
-echo    Utility scripts installed.
+copy /Y "scripts\team\task-state.sh" "%CLAUDE_HOME%\scripts\team\task-state.sh" >nul 2>&1
+copy /Y "scripts\team\assign.sh" "%CLAUDE_HOME%\scripts\team\assign.sh" >nul 2>&1
+copy /Y "scripts\team\complete-gate.sh" "%CLAUDE_HOME%\scripts\team\complete-gate.sh" >nul 2>&1
+echo    Utility scripts installed (incl. 3 team delivery-loop scripts backing /team:start and /team:status).
 
 echo [7/9] Installing telemetry log...
 if not exist "%CLAUDE_HOME%\logs\skill-usage.log" type nul > "%CLAUDE_HOME%\logs\skill-usage.log"
@@ -137,6 +141,17 @@ if exist "%CLAUDE_HOME%\skills\adopt\SKILL.md" (
     set /a ERRORS+=1
 )
 
+set "TEAM_MISSING="
+if not exist "%CLAUDE_HOME%\scripts\team\task-state.sh" set "TEAM_MISSING=!TEAM_MISSING! task-state.sh"
+if not exist "%CLAUDE_HOME%\scripts\team\assign.sh" set "TEAM_MISSING=!TEAM_MISSING! assign.sh"
+if not exist "%CLAUDE_HOME%\scripts\team\complete-gate.sh" set "TEAM_MISSING=!TEAM_MISSING! complete-gate.sh"
+if not defined TEAM_MISSING (
+    echo    OK: 3 team delivery-loop scripts
+) else (
+    echo    MISSING team delivery-loop scripts:!TEAM_MISSING!
+    set /a ERRORS+=1
+)
+
 echo.
 echo   Checking dependencies...
 where bash >nul 2>&1
@@ -218,6 +233,10 @@ echo                   session-logger statusline
 echo                   skill-telemetry
 echo                   (inline in settings.json: idle-detection, session-end)
 echo                   (manual utilities: timed-run, progress-monitor)
+echo     Scripts     - team delivery loop behind /team:start and
+echo                   /team:status: task-state assign complete-gate
+echo                   (installed to scripts\team\ and invoked by
+echo                   absolute path; task state stays per-project)
 echo     Templates   - wiki CI/CD rules legal
 echo                   security-policies compliance
 echo                   operations vendor

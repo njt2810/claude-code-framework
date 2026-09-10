@@ -74,6 +74,23 @@ RULES=$(ls rules/*.md 2>/dev/null | wc -l | tr -d ' ')
 [ "$AGENTS" = "9" ] && [ "$RULES" = "10" ]
 check "agent/rule counts match documentation (agents=$AGENTS rules=$RULES)" $?
 
+echo "== Install packaging =="
+# skills/team-start and skills/team-status invoke the team scripts at their
+# INSTALLED path (~/.claude/scripts/team/...), so a script that install.bat
+# never copies is a script that only works inside a checkout of this repo --
+# /team:start and /team:status would appear in /help globally and then fail
+# with "No such file or directory" for every real user. install.bat copies
+# them one explicit filename at a time (matching its own [6/9] utility-script
+# style), which is exactly what makes this assertion meaningful: add a new
+# scripts/team/foo.sh and forget install.bat, and this check fails.
+UNSHIPPED=0
+for f in scripts/team/*.sh; do
+  base=$(basename "$f")
+  grep -qF "scripts\\team\\$base" install.bat \
+    || { echo "     not copied by install.bat: $f"; UNSHIPPED=1; }
+done
+check "install.bat ships every scripts/team/*.sh" $UNSHIPPED
+
 echo "== Personal-identifier scrub =="
 PATTERNS="${SCRUB_PATTERNS:-}"
 if [ -z "$PATTERNS" ] && [ -f ".scrub-patterns" ]; then

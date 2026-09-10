@@ -410,9 +410,98 @@ NOGIT_DIR=$(mktemp -d)
 gated_task_in "$NOGIT_DIR" nogit-gate
 ERR_OUT=$(cd "$NOGIT_DIR" && bash "$GATE" nogit-gate 2>&1 1>/dev/null)
 RC_OUT=$(cd "$NOGIT_DIR" && bash "$TASK_STATE" status nogit-gate | jq -r '.state')
-[ -z "$ERR_OUT" ]; check "no warning printed outside a git repository (got: $ERR_OUT)" $?
-[ "$RC_OUT" = "done" ]; check "task reaches done normally outside a git repository (both snapshots are no-git-repository, so staleness check trivially matches)" $?
+[ -z "$ERR_OUT" ] && RC_CHK=0 || RC_CHK=1; check "no warning printed outside a git repository (got: $ERR_OUT)" $RC_CHK
+[ "$RC_OUT" = "done" ] && RC_CHK=0 || RC_CHK=1; check "task reaches done normally outside a git repository (both snapshots are no-git-repository, so staleness check trivially matches)" $RC_CHK
 rm -rf "$NOGIT_DIR"
+
+echo ""
+echo "== relocated install: the three scripts run from ~/.claude/scripts/team/ against a foreign project =="
+# This is the packaging contract, tested end to end rather than assumed.
+# install.bat copies scripts/team/*.sh to %USERPROFILE%\.claude\scripts\team\,
+# and skills/team-start + skills/team-status invoke them from there by
+# absolute path. So the full lifecycle must work when (a) the scripts live in
+# a directory that is not this repo, and (b) the cwd is a project that is not
+# this repo either -- with state landing in THAT project, never near the repo
+# or the install directory. Two independent temp trees, so a path bug in
+# either direction shows up as a failure instead of accidentally working.
+INSTALL_ROOT=$(mktemp -d)
+FOREIGN_PROJ=$(mktemp -d)
+mkdir -p "$INSTALL_ROOT/scripts/team"
+cp "$REPO_ROOT"/scripts/team/*.sh "$INSTALL_ROOT/scripts/team/"
+chmod +x "$INSTALL_ROOT"/scripts/team/*.sh 2>/dev/null
+R_TASK_STATE="$INSTALL_ROOT/scripts/team/task-state.sh"
+R_ASSIGN="$INSTALL_ROOT/scripts/team/assign.sh"
+R_GATE="$INSTALL_ROOT/scripts/team/complete-gate.sh"
+
+[ -f "$R_TASK_STATE" ] && [ -f "$R_ASSIGN" ] && [ -f "$R_GATE" ] && RC_CHK=0 || RC_CHK=1
+check "test setup: all 3 team scripts copied to a non-repo install directory" $RC_CHK
+case "$INSTALL_ROOT/" in "$REPO_ROOT"/*) RC_CHK=1 ;; *) RC_CHK=0 ;; esac
+check "test setup: install directory is genuinely outside the repo" $RC_CHK
+case "$FOREIGN_PROJ/" in "$REPO_ROOT"/*) RC_CHK=1 ;; *) RC_CHK=0 ;; esac
+check "test setup: foreign project directory is genuinely outside the repo" $RC_CHK
+
+( cd "$FOREIGN_PROJ" && git init -q && git config user.email t@t.test && git config user.name t ) >/dev/null 2>&1
+echo ".claude/state/" > "$FOREIGN_PROJ/.gitignore"
+echo "some app code" > "$FOREIGN_PROJ/app.txt"
+( cd "$FOREIGN_PROJ" && git add .gitignore app.txt && git commit -qm init ) >/dev/null 2>&1
+
+# The gap this test exists to close: from a foreign cwd, the OLD cwd-relative
+# invocation the skills used to document cannot work at all.
+( cd "$FOREIGN_PROJ" && bash scripts/team/task-state.sh list ) >/dev/null 2>&1
+[ "$?" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "the old cwd-relative 'bash scripts/team/task-state.sh' form genuinely fails outside the repo (this is the bug being fixed)" $RC_CHK
+
+echo "-- full lifecycle by absolute path: create -> start -> check -> record-evidence -> complete-gate -> done --"
+( cd "$FOREIGN_PROJ" && bash "$R_TASK_STATE" create relocated-1 "Relocated lifecycle task" ) >/dev/null 2>&1
+check "create works from a foreign cwd with an absolute script path" $?
+( cd "$FOREIGN_PROJ" && bash "$R_TASK_STATE" start relocated-1 ) >/dev/null 2>&1
+check "start works from a foreign cwd" $?
+RELOC_STATE=$(cd "$FOREIGN_PROJ" && bash "$R_TASK_STATE" status relocated-1 2>/dev/null | jq -r '.state')
+[ "$RELOC_STATE" = "building" ] && RC_CHK=0 || RC_CHK=1
+check "status read back from a foreign cwd shows state=building (got: $RELOC_STATE)" $RC_CHK
+
+# assign.sh is the script that must find its sibling task-state.sh purely from
+# its own location -- the whole reason all three can be relocated together.
+ASSIGN_OUT=$(cd "$FOREIGN_PROJ" && bash "$R_ASSIGN" relocated-1 --role builder --agent-type team-builder 2>&1); RC=$?
+check "assign.sh --role builder works from the relocated install (it resolves its sibling task-state.sh by its own location, not by cwd)" $RC
+echo "$ASSIGN_OUT" | grep -q "BRIEFING"; check "relocated assign.sh still prints its BRIEFING block" $?
+
+( cd "$FOREIGN_PROJ" && bash "$R_TASK_STATE" check relocated-1 ) >/dev/null 2>&1
+check "check (building -> checking) works from a foreign cwd" $?
+( cd "$FOREIGN_PROJ" && bash "$R_ASSIGN" relocated-1 --role verifier --agent-type team-verifier \
+    --acceptance-text "Lifecycle completes from a relocated install" ) >/dev/null 2>&1
+check "assign.sh --role verifier works from the relocated install" $?
+
+echo "real findings, written into the foreign project" > "$FOREIGN_PROJ/relocated-artifact.txt"
+echo "raw test output" > "$FOREIGN_PROJ/relocated-output.txt"
+( cd "$FOREIGN_PROJ" && bash "$R_TASK_STATE" record-evidence relocated-1 --command "bash tests/some-suite.sh" \
+    --exit-code 0 --tests-total 3 --tests-skipped 0 \
+    --output-file relocated-output.txt --artifact relocated-artifact.txt ) >/dev/null 2>&1
+check "record-evidence works from a foreign cwd (artifact paths resolve against that project, not the repo)" $?
+
+RELOC_OUT=$(cd "$FOREIGN_PROJ" && bash "$R_GATE" relocated-1 2>&1); RC=$?
+check "complete-gate.sh exits 0 from the relocated install against the foreign project" $RC
+echo "$RELOC_OUT" | grep -q "GATE PASS"; check "relocated gate output shows GATE PASS" $?
+RELOC_STATE=$(cd "$FOREIGN_PROJ" && bash "$R_TASK_STATE" status relocated-1 2>/dev/null | jq -r '.state')
+[ "$RELOC_STATE" = "done" ] && RC_CHK=0 || RC_CHK=1
+check "independently re-read status shows state=done — full lifecycle works from a relocated install (got: $RELOC_STATE)" $RC_CHK
+
+echo "-- state landed in the foreign project only, not in the repo or the install directory --"
+[ -f "$FOREIGN_PROJ/.claude/state/team-tasks.json" ] && RC_CHK=0 || RC_CHK=1
+check "state file exists at the FOREIGN PROJECT's own .claude/state/team-tasks.json" $RC_CHK
+grep -q "relocated-1" "$FOREIGN_PROJ/.claude/state/team-tasks.json" 2>/dev/null
+check "that file is the one holding the task record" $?
+[ ! -e "$INSTALL_ROOT/.claude" ] && [ ! -e "$INSTALL_ROOT/scripts/team/.claude" ] && RC_CHK=0 || RC_CHK=1
+check "no .claude/state was created anywhere under the install directory (scripts are global tooling, state is not)" $RC_CHK
+if [ -f "$REPO_ROOT/.claude/state/team-tasks.json" ]; then
+  grep -q "relocated-1" "$REPO_ROOT/.claude/state/team-tasks.json" 2>/dev/null
+  [ "$?" != "0" ] && RC_CHK=0 || RC_CHK=1
+else
+  RC_CHK=0
+fi
+check "the repo's own task state was not touched by the foreign-project run" $RC_CHK
+
+rm -rf "$INSTALL_ROOT" "$FOREIGN_PROJ"
 
 echo ""
 echo "=============================="

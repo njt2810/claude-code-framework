@@ -32,17 +32,43 @@ never inferred or remembered from earlier in the conversation. State can
 move between invocations (another session, a builder subagent, or a plain
 interactive edit), so re-read it fresh every time this skill runs.
 
+**Where the scripts live vs. where you run them — two different things.**
+`task-state.sh` is invoked by its *installed absolute path*
+(`~/.claude/scripts/team/task-state.sh`, where `install.bat` puts it), so it
+works from any working directory. But you must still run it **from the
+target project's root**, because it resolves
+`.claude/state/team-tasks.json` relative to the current working directory
+(see `task-state.sh`'s own header comment). The scripts are global tooling;
+the task state is per-project data, and the cwd is the only thing that
+decides *which* project's state this report describes. The same applies to
+Step 2's `git` commands — run them from that same project root, or the
+computed snapshot describes the wrong tree.
+
+**Exception — working inside a checkout of this framework repo itself.**
+If you are developing the framework rather than using it on another
+project, call the repo-local copy instead — `bash scripts/team/task-state.sh
+...`, from the repo root. That copy is the version under development; the
+installed copy at `~/.claude/scripts/team/` only refreshes when
+`install.bat` is re-run, so it may lag behind the repo.
+
 ## Procedure
+
+**Before running any command below, settle which copy of the scripts you are
+calling.** The commands here are written in their *installed* form
+(`~/.claude/scripts/team/...`). If your working directory is a checkout of
+the framework repo itself, substitute the repo-local `scripts/team/...`
+instead, per the exception above — that is the common case today, since
+`docs/rebuild/BUILD_PLAN.md` parts currently only exist in this repo.
 
 ### Step 1 — Read all tasks
 
-Run `bash scripts/team/task-state.sh list`. If it prints "No tasks
+Run `bash ~/.claude/scripts/team/task-state.sh list`. If it prints "No tasks
 recorded.", report that plainly and stop — there is nothing further to
 compute.
 
 Otherwise, for each task also read its full record —
-`bash scripts/team/task-state.sh status <id>` — since `list` alone only
-gives id/state/title/depends_on, and Step 2 below needs each task's latest
+`bash ~/.claude/scripts/team/task-state.sh status <id>` — since `list` alone
+only gives id/state/title/depends_on, and Step 2 below needs each task's latest
 `evidence[-1].code_snapshot` and `assignments[-1]` too.
 
 ### Step 2 — Flag staleness for tasks in "building" or "checking"
