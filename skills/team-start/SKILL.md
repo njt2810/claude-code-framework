@@ -245,7 +245,23 @@ Wait for the subagent to finish and report back.
    not use it to dodge a real gap in coverage).
 3. Report the gate's actual output verbatim — `GATE PASS ... COMPLETED ...
    state=done`, or `GATE FAIL (check N): <reason>` — whichever it actually
-   printed. A gate failure (stale evidence, missing artifact, nonzero exit
+   printed.
+
+   **There is a third outcome, and it must never be reported as a plain
+   pass:** `GATE PASS (WITHOUT STALENESS VERIFICATION)`, ending
+   `COMPLETED <id> state=done staleness_verified=false`. This happens when
+   the project is not under version control, so check 6 could not compare
+   the recorded code snapshot against the current one at all — meaning
+   checks 1-5 passed, but nothing proves the artifacts just verified are the
+   same code the recorded command actually ran against. Any drift since the
+   evidence was recorded is undetected. Report that distinction to the user
+   in those terms; do not summarise it as "the gate passed". The gate
+   deliberately does not refuse this (a project without version control is
+   legitimate) and records `staleness_verified: false` on the task's
+   `checking -> done` history entry so a verified completion can be told
+   apart from this one later.
+
+   A gate failure (stale evidence, missing artifact, nonzero exit
    code, skipped/zero tests) means the task is still `checking`, not done;
    report the specific check that failed and stop there. Do not retry the
    gate blindly — if the failure is fixable (e.g. code moved since
