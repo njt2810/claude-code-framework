@@ -2,6 +2,14 @@
 .claude/session-log.jsonl
 logs/
 
+# Per-project mutable runtime state — safety mode (mode.json), timer
+# (timer.json), cost tracking (cost-tracking.json), and task-state.sh's
+# team-tasks.json (plus its .team-tasks.lock/.lockdir lock files) all live
+# here and mutate on every transition, same as session-log.jsonl above.
+# Several skills (careful, timer, wrap-up) already document this directory
+# as gitignored — this makes it actually so.
+.claude/state/
+
 # OS files
 Thumbs.db
 .DS_Store

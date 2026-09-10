@@ -20,7 +20,7 @@ check() {
 
 echo "== Shell syntax (bash -n) =="
 SYNTAX_OK=0
-for f in hooks/scripts/*.sh tests/*.sh scripts/*.sh; do
+for f in hooks/scripts/*.sh tests/*.sh scripts/*.sh scripts/team/*.sh; do
   bash -n "$f" 2>/dev/null || { echo "     syntax error: $f"; SYNTAX_OK=1; }
 done
 check "all shell scripts parse" $SYNTAX_OK
@@ -28,7 +28,7 @@ check "all shell scripts parse" $SYNTAX_OK
 echo "== Shellcheck (if available) =="
 if command -v shellcheck >/dev/null 2>&1; then
   # Severity=warning: catches real bugs (SC2086 quoting, SC2016) without style noise
-  shellcheck -S warning hooks/scripts/*.sh scripts/*.sh tests/*.sh
+  shellcheck -S warning hooks/scripts/*.sh scripts/*.sh scripts/team/*.sh tests/*.sh
   check "shellcheck clean at warning severity" $?
 else
   echo "  skip: shellcheck not installed"
@@ -61,10 +61,35 @@ echo "     disk=$DISK install.bat=$INSTALL README=$README_CLAIM help=$HELP_CLAIM
 [ "$DISK" = "$INSTALL" ] && [ "$DISK" = "$README_CLAIM" ] && [ "$DISK" = "$HELP_CLAIM" ]
 check "skill counts agree everywhere" $?
 
+# 7 of these are the general delegation team documented in README.md's "Team
+# System" table (Code Reviewer, Test Engineer, Wiki Updater, Security
+# Auditor, Compliance Officer, Knowledge Agent, UI/UX Engineer). The other 2
+# (team-builder, team-verifier) are the framework-rebuild's own lead/builder/
+# verifier delivery-loop roles added in docs/rebuild/BUILD_PLAN.md Part 1.3 --
+# a separate system (see docs/rebuild/DESIGN.md), intentionally not added to
+# README's Team System table since they are not part of that delegation team.
+# If either roster changes, update both this count and its matching docs.
 AGENTS=$(ls agents/*.md 2>/dev/null | wc -l | tr -d ' ')
 RULES=$(ls rules/*.md 2>/dev/null | wc -l | tr -d ' ')
-[ "$AGENTS" = "7" ] && [ "$RULES" = "10" ]
+[ "$AGENTS" = "9" ] && [ "$RULES" = "10" ]
 check "agent/rule counts match documentation (agents=$AGENTS rules=$RULES)" $?
+
+echo "== Install packaging =="
+# skills/team-start and skills/team-status invoke the team scripts at their
+# INSTALLED path (~/.claude/scripts/team/...), so a script that install.bat
+# never copies is a script that only works inside a checkout of this repo --
+# /team:start and /team:status would appear in /help globally and then fail
+# with "No such file or directory" for every real user. install.bat copies
+# them one explicit filename at a time (matching its own [6/9] utility-script
+# style), which is exactly what makes this assertion meaningful: add a new
+# scripts/team/foo.sh and forget install.bat, and this check fails.
+UNSHIPPED=0
+for f in scripts/team/*.sh; do
+  base=$(basename "$f")
+  grep -qF "scripts\\team\\$base" install.bat \
+    || { echo "     not copied by install.bat: $f"; UNSHIPPED=1; }
+done
+check "install.bat ships every scripts/team/*.sh" $UNSHIPPED
 
 echo "== Personal-identifier scrub =="
 PATTERNS="${SCRUB_PATTERNS:-}"

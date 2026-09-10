@@ -18,3 +18,12 @@ jobs:
 
       - name: Hook smoke tests
         run: bash tests/hooks-smoke.sh
+
+      - name: Task-state smoke tests
+        run: bash tests/task-state-smoke.sh
+
+      - name: Assignment-recording smoke tests
+        run: bash tests/assign-smoke.sh
+
+      - name: Completion-gate smoke tests
+        run: bash tests/complete-gate-smoke.sh
