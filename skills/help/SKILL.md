@@ -22,7 +22,7 @@ instead — it scans project state and prioritizes.
 Display this reference to the user:
 
 ```
-YOUR COMMAND REFERENCE — 55 skills, 6 always-on + 1 on-demand agents
+YOUR COMMAND REFERENCE — 57 skills, 6 always-on + 1 on-demand agents
 
 REALM SYSTEM
   /adopt [realm-key]      Bootstrap a new or existing project — realm
@@ -181,6 +181,14 @@ QUICK DECISION TREE
   Starting client billable work? → /timer start (then work normally)
   Finished client billable work? → /timer stop (logs evidence + duration)
 
+FRAMEWORK-REBUILD DELIVERY LOOP (2 more, not part of the 55 general skills
+above — this repo's own lead/builder/verifier build system; see
+docs/rebuild/DESIGN.md and docs/rebuild/BUILD_PLAN.md)
+  /team:start <id>        Dispatch one BUILD_PLAN.md part through
+                          builder -> verifier -> complete-gate.sh
+  /team:status            Concise snapshot of every tracked part's state,
+                          flagging stale/unmanaged-change evidence
+
 See CLAUDE.md "Skill Workflow Guide" for the full when-to-run-what table
 organized by project phase.
 ```
@@ -193,7 +201,8 @@ organized by project phase.
 
 ## Verification
 
-- All 55 installed skills are listed
+- All 57 installed skills are listed (55 general + the 2 framework-rebuild
+  delivery-loop commands in their own section)
 - Each section grouping is logical
 - Quick decision tree at the bottom resolves common questions
 - Skills the user might not know about are surfaced

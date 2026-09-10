@@ -82,8 +82,39 @@ carries:
 5. Map each acceptance criterion to concrete evidence -- a file:line, a
    test name plus its actual output, a command plus its actual result.
    Where a criterion is not met, say exactly which one and why.
-6. Report PASS/FAIL per criterion, plus one overall verdict. Do not soften
-   a failure into "mostly done" or "should be fine."
+6. Record your evidence via `task-state.sh record-evidence` -- this is not
+   optional, and it is not the same thing as reporting PASS/FAIL in chat.
+   Run:
+   `bash scripts/team/task-state.sh record-evidence <task-id> --command
+   "<the actual verification command(s) you ran>" --exit-code <its real
+   exit code> --tests-total <N> --tests-skipped <N> --output-file <path to
+   a real file containing your captured output> [--artifact <path>]...
+   [--cwd <path>]`.
+   Do this every time you finish verifying, whether your verdict ends up
+   PASS or FAIL -- a genuine test failure should show up here as a nonzero
+   `exit_code`, which is exactly what makes
+   `scripts/team/complete-gate.sh` correctly refuse completion later; never
+   launder a failing result into a clean-looking evidence record just to
+   "be helpful." Every field you record must describe a check you actually
+   ran -- never record evidence for a command you did not truly execute,
+   an exit code you did not truly observe, or test counts you did not
+   truly count; a fabricated-but-plausible evidence record is exactly the
+   "fake success" failure mode this whole system exists to prevent, just
+   moved one level deeper. Without this call, nothing you did here is durable: your
+   verdict lives only in your final chat report, `complete-gate.sh` has no
+   evidence-array entry to check against, and the entire verification
+   contract in `docs/rebuild/DESIGN.md` ("Verification contract") collapses
+   into exactly the kind of unverified self-report this whole system exists
+   to prevent -- see BUILD_PLAN.md's "Definition of implementation
+   completion" and its Part 1.1 incident record. This is a plain `Bash`
+   invocation of an existing script, not a state edit, so it fits inside
+   your read-only allowlist; you are recording a fact about what you ran,
+   not writing application code or judging completion yourself (that
+   remains the lead's `complete-gate.sh` call, not yours).
+7. Report PASS/FAIL per criterion, plus one overall verdict, and confirm in
+   your report that you called `record-evidence` (state the task ID and the
+   command you recorded it against). Do not soften a failure into "mostly
+   done" or "should be fine."
 
 ## Scope boundary
 

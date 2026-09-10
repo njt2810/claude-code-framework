@@ -116,9 +116,11 @@ compaction, pointing at `/context` rather than hardcoding a persona — see the 
 System below), compaction preservation rules, session-monitor reinforcement, and
 TEAM.md reference.
 
-### 3. The Skills System (55 Slash Commands)
+### 3. The Skills System (57 Slash Commands)
 
 Skills are slash commands that encode workflows. They're not just prompts — they're structured procedures with trigger conditions, step-by-step instructions, known failure modes, and verification checks.
+
+55 of these are the general framework skills documented in the tables below. The other 2 — `/team:start` and `/team:status` (`skills/team-start/`, `skills/team-status/`) — are the framework-rebuild's own lead/builder/verifier delivery-loop commands added in `docs/rebuild/BUILD_PLAN.md` Part 1.5, a separate system from the general workflows below (see `docs/rebuild/DESIGN.md`); they are intentionally not added to the tables that follow.
 
 Every skill has four required sections:
 - **When to Use** — trigger and anti-trigger conditions
@@ -344,7 +346,7 @@ Key constraints:
 ├── settings.json          ← Hook configuration (12 hooks)
 ├── realms.json             ← Your private realm-root map (v2, gitignored)
 ├── realms.json.example     ← Template — copy to realms.json and fill in
-├── skills/                ← 55 slash commands
+├── skills/                ← 57 slash commands
 │   ├── adopt/                 Realm-aware project onboarding (v2)
 │   ├── context/               Resolved-identity transparency command (v2)
 │   ├── init-project/          Legacy alias for adopt
@@ -357,7 +359,12 @@ Key constraints:
 │   ├── compliance-audit/  data-inventory/  legal-docs/   Compliance pack
 │   ├── deploy/  release/  incident/  dr-plan/            Operations
 │   ├── auth-setup/  billing-setup/  email-setup/         Business
-│   └── ... (55 total)
+│   ├── ... (55 general skills total)
+│   └── team-start/ / team-status/
+│                             2 more commands, not part of the general 55
+│                             above — they're the framework-rebuild's own
+│                             lead/builder/verifier delivery loop
+│                             (see docs/rebuild/)
 ├── agents/                ← 7 specialist subagent definitions
 │   ├── code-reviewer.md      (two-stage review)
 │   ├── test-engineer.md
