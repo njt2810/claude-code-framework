@@ -35,7 +35,7 @@ echo "== missing jq dependency =="
 REAL_BASH=$(command -v bash)
 NO_JQ_DIR=$(mktemp -d)
 OUT=$(PATH="$NO_JQ_DIR" "$REAL_BASH" "$SCRIPT" list 2>&1); RC=$?
-[ "$RC" = "2" ]; check "missing jq exits 2 (got $RC)" $?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1; check "missing jq exits 2 (got $RC)" $RC_CHK
 echo "$OUT" | grep -qi "jq is required"; check "missing jq prints a clear message" $?
 rm -rf "$NO_JQ_DIR"
 
@@ -53,10 +53,10 @@ check "defaults applied: risk=medium budget=2 when unspecified" $?
 
 echo "== dependencies block premature dispatch (core acceptance criterion) =="
 OUT=$(bash "$SCRIPT" start task-b 2>&1); RC=$?
-[ "$RC" != "0" ]; check "start task-b fails while task-a is still planned (exit $RC)" $?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "start task-b fails while task-a is still planned (exit $RC)" $RC_CHK
 echo "$OUT" | grep -q "task-a"; check "error names the unmet dependency (task-a)" $?
 STATE_B=$(bash "$SCRIPT" status task-b | jq -r '.state')
-[ "$STATE_B" = "planned" ]; check "task-b remains in 'planned' after the blocked start attempt" $?
+[ "$STATE_B" = "planned" ] && RC_CHK=0 || RC_CHK=1; check "task-b remains in 'planned' after the blocked start attempt" $RC_CHK
 
 echo "== full lifecycle on task-a: start -> check -> complete =="
 bash "$SCRIPT" start task-a >/dev/null 2>&1
@@ -70,10 +70,10 @@ check "task-a state is done" $?
 
 echo "== history accumulates across transitions =="
 HIST_LEN=$(bash "$SCRIPT" status task-a | jq '.history | length')
-[ "$HIST_LEN" = "4" ]; check "task-a history has 4 entries (create+start+check+complete), got $HIST_LEN" $?
+[ "$HIST_LEN" = "4" ] && RC_CHK=0 || RC_CHK=1; check "task-a history has 4 entries (create+start+check+complete), got $HIST_LEN" $RC_CHK
 FROM_TO=$(bash "$SCRIPT" status task-a | jq -r '.history | map("\(.from // "null")>\(.to)") | join(",")')
-[ "$FROM_TO" = "null>planned,planned>building,building>checking,checking>done" ]
-check "history from/to sequence is correct (got: $FROM_TO)" $?
+[ "$FROM_TO" = "null>planned,planned>building,building>checking,checking>done" ] && RC_CHK=0 || RC_CHK=1
+check "history from/to sequence is correct (got: $FROM_TO)" $RC_CHK
 
 echo "== dependency satisfied: start task-b now succeeds =="
 bash "$SCRIPT" start task-b >/dev/null 2>&1
@@ -82,9 +82,9 @@ check "start task-b succeeds once task-a is done" $?
 echo "== invalid transition: complete on a 'planned' task =="
 CS1=$(checksum "$STATE_FILE")
 OUT=$(bash "$SCRIPT" complete task-c 2>&1); RC=$?
-[ "$RC" != "0" ]; check "complete on planned task fails (exit $RC)" $?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "complete on planned task fails (exit $RC)" $RC_CHK
 CS2=$(checksum "$STATE_FILE")
-[ "$CS1" = "$CS2" ]; check "state file checksum unchanged after rejected complete" $?
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1; check "state file checksum unchanged after rejected complete" $RC_CHK
 
 echo "== invalid transition: check on a 'done' task =="
 bash "$SCRIPT" create task-e "Full-lifecycle task" >/dev/null 2>&1
@@ -93,41 +93,41 @@ bash "$SCRIPT" check task-e >/dev/null 2>&1
 bash "$SCRIPT" complete task-e >/dev/null 2>&1
 CS1=$(checksum "$STATE_FILE")
 OUT=$(bash "$SCRIPT" check task-e 2>&1); RC=$?
-[ "$RC" != "0" ]; check "check on a done task fails (exit $RC)" $?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "check on a done task fails (exit $RC)" $RC_CHK
 CS2=$(checksum "$STATE_FILE")
-[ "$CS1" = "$CS2" ]; check "state file checksum unchanged after rejected check" $?
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1; check "state file checksum unchanged after rejected check" $RC_CHK
 
 echo "== invalid transition: unblock on a task that isn't blocked =="
 CS1=$(checksum "$STATE_FILE")
 OUT=$(bash "$SCRIPT" unblock task-c 2>&1); RC=$?
-[ "$RC" != "0" ]; check "unblock on a non-blocked task fails (exit $RC)" $?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "unblock on a non-blocked task fails (exit $RC)" $RC_CHK
 CS2=$(checksum "$STATE_FILE")
-[ "$CS1" = "$CS2" ]; check "state file checksum unchanged after rejected unblock" $?
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1; check "state file checksum unchanged after rejected unblock" $RC_CHK
 
 echo "== invalid transition: start on a nonexistent id =="
 CS1=$(checksum "$STATE_FILE")
 OUT=$(bash "$SCRIPT" start does-not-exist 2>&1); RC=$?
-[ "$RC" != "0" ]; check "start on nonexistent id fails (exit $RC)" $?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "start on nonexistent id fails (exit $RC)" $RC_CHK
 CS2=$(checksum "$STATE_FILE")
-[ "$CS1" = "$CS2" ]; check "state file checksum unchanged after rejected start on missing id" $?
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1; check "state file checksum unchanged after rejected start on missing id" $RC_CHK
 
 echo "== create fails if a listed dependency doesn't exist =="
 CS1=$(checksum "$STATE_FILE")
 OUT=$(bash "$SCRIPT" create task-g "Depends on ghost" --depends does-not-exist 2>&1); RC=$?
-[ "$RC" != "0" ]; check "create with a missing dependency fails (exit $RC)" $?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "create with a missing dependency fails (exit $RC)" $RC_CHK
 echo "$OUT" | grep -q "does-not-exist"; check "error names the missing dependency" $?
 CS2=$(checksum "$STATE_FILE")
-[ "$CS1" = "$CS2" ]; check "state file checksum unchanged after rejected create (missing dep)" $?
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1; check "state file checksum unchanged after rejected create (missing dep)" $RC_CHK
 
 echo "== duplicate create fails, original task untouched =="
 BEFORE_TITLE=$(bash "$SCRIPT" status task-a | jq -r '.title')
 CS1=$(checksum "$STATE_FILE")
 OUT=$(bash "$SCRIPT" create task-a "Different title" 2>&1); RC=$?
-[ "$RC" != "0" ]; check "creating an already-existing id fails (exit $RC)" $?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "creating an already-existing id fails (exit $RC)" $RC_CHK
 CS2=$(checksum "$STATE_FILE")
-[ "$CS1" = "$CS2" ]; check "state file checksum unchanged after rejected duplicate create" $?
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1; check "state file checksum unchanged after rejected duplicate create" $RC_CHK
 AFTER_TITLE=$(bash "$SCRIPT" status task-a | jq -r '.title')
-[ "$BEFORE_TITLE" = "$AFTER_TITLE" ]; check "original task-a title untouched (still: $AFTER_TITLE)" $?
+[ "$BEFORE_TITLE" = "$AFTER_TITLE" ] && RC_CHK=0 || RC_CHK=1; check "original task-a title untouched (still: $AFTER_TITLE)" $RC_CHK
 
 echo "== block then unblock restores the pre-block state =="
 bash "$SCRIPT" create task-f "Blockable task" >/dev/null 2>&1
@@ -152,7 +152,7 @@ echo "$LIST_OUT" | grep -q "depends_on"; check "list shows depends_on" $?
 
 echo "== status on unknown id =="
 bash "$SCRIPT" status no-such-task >/dev/null 2>&1; RC=$?
-[ "$RC" != "0" ]; check "status on unknown id fails (exit $RC)" $?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "status on unknown id fails (exit $RC)" $RC_CHK
 
 echo "== project isolation =="
 ISO_A=$(mktemp -d)
@@ -166,15 +166,15 @@ OUT_B_LIST=$(cd "$ISO_B" && bash "$SCRIPT" list 2>&1)
 check "task created in dir A is invisible via 'list' in dir B" $?
 
 ( cd "$ISO_B" && bash "$SCRIPT" status iso-only-in-a >/dev/null 2>&1 ); RC=$?
-[ "$RC" != "0" ]; check "'status' for A's task from dir B returns not-found (exit $RC)" $?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "'status' for A's task from dir B returns not-found (exit $RC)" $RC_CHK
 
 ( cd "$ISO_B" && bash "$SCRIPT" create iso-only-in-a "B's own version" >/dev/null 2>&1 )
 check "dir B can independently create a task with the same id (no cross-contamination)" $?
 
 TITLE_A=$(cd "$ISO_A" && bash "$SCRIPT" status iso-only-in-a | jq -r '.title')
 TITLE_B=$(cd "$ISO_B" && bash "$SCRIPT" status iso-only-in-a | jq -r '.title')
-[ "$TITLE_A" = "A's task" ] && [ "$TITLE_B" = "B's own version" ]
-check "each dir keeps its own independent record for the same id (A=$TITLE_A, B=$TITLE_B)" $?
+[ "$TITLE_A" = "A's task" ] && [ "$TITLE_B" = "B's own version" ] && RC_CHK=0 || RC_CHK=1
+check "each dir keeps its own independent record for the same id (A=$TITLE_A, B=$TITLE_B)" $RC_CHK
 
 ! bash "$SCRIPT" list 2>&1 | grep -q "iso-only-in-a"
 check "main WORKDIR project state unaffected by isolated-dir tasks" $?
@@ -182,19 +182,19 @@ check "main WORKDIR project state unaffected by isolated-dir tasks" $?
 echo "== flag given without its value must error, not hang (regression: create --depends used to spin forever) =="
 if command -v timeout >/dev/null 2>&1; then
   OUT=$(timeout 5 bash "$SCRIPT" create no-val-task "No value task" --depends 2>&1); RC=$?
-  [ "$RC" != "124" ]; check "create --depends with no trailing value does not hang (exit $RC, 124=timeout)" $?
-  [ "$RC" = "2" ]; check "create --depends with no trailing value exits 2 (got $RC)" $?
+  [ "$RC" != "124" ] && RC_CHK=0 || RC_CHK=1; check "create --depends with no trailing value does not hang (exit $RC, 124=timeout)" $RC_CHK
+  [ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1; check "create --depends with no trailing value exits 2 (got $RC)" $RC_CHK
   echo "$OUT" | grep -qi -- "--depends"; check "error names the missing --depends value" $?
   bash "$SCRIPT" status no-val-task >/dev/null 2>&1; RC2=$?
-  [ "$RC2" != "0" ]; check "task was not created when its flag value was missing (bad usage exits before any write)" $?
+  [ "$RC2" != "0" ] && RC_CHK=0 || RC_CHK=1; check "task was not created when its flag value was missing (bad usage exits before any write)" $RC_CHK
 
   bash "$SCRIPT" create blockable-novalue "Blockable task" >/dev/null 2>&1
   OUT=$(timeout 5 bash "$SCRIPT" block blockable-novalue "some reason" --resume-condition 2>&1); RC=$?
-  [ "$RC" != "124" ]; check "block --resume-condition with no trailing value does not hang (exit $RC, 124=timeout)" $?
-  [ "$RC" = "2" ]; check "block --resume-condition with no trailing value exits 2 (got $RC)" $?
+  [ "$RC" != "124" ] && RC_CHK=0 || RC_CHK=1; check "block --resume-condition with no trailing value does not hang (exit $RC, 124=timeout)" $RC_CHK
+  [ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1; check "block --resume-condition with no trailing value exits 2 (got $RC)" $RC_CHK
   echo "$OUT" | grep -qi -- "--resume-condition"; check "error names the missing --resume-condition value" $?
   STATE_BN=$(bash "$SCRIPT" status blockable-novalue | jq -r '.state')
-  [ "$STATE_BN" = "planned" ]; check "task state unchanged after rejected block with missing flag value (got $STATE_BN)" $?
+  [ "$STATE_BN" = "planned" ] && RC_CHK=0 || RC_CHK=1; check "task state unchanged after rejected block with missing flag value (got $STATE_BN)" $RC_CHK
 else
   echo "  SKIP: 'timeout' not on PATH, cannot safely test the missing-flag-value hang regression"
 fi
@@ -221,7 +221,7 @@ if command -v timeout >/dev/null 2>&1; then
     for pid in "${PIDS[@]}"; do wait "$pid"; done
   ' _ "$SCRIPT" "$CONC_DIR" 20
   RC=$?
-  [ "$RC" != "124" ]; check "20 concurrent creates complete without deadlocking on the lock (exit $RC, 124=timeout)" $?
+  [ "$RC" != "124" ] && RC_CHK=0 || RC_CHK=1; check "20 concurrent creates complete without deadlocking on the lock (exit $RC, 124=timeout)" $RC_CHK
   CONC_COUNT=$(jq '.tasks | length' "$CONC_DIR/.claude/state/team-tasks.json" 2>/dev/null)
   [ "$CONC_COUNT" = "20" ]; check "20 concurrent creates against the same state file yield exactly 20 tasks, not fewer (got ${CONC_COUNT:-0})" $?
   rm -rf "$CONC_DIR"
@@ -259,7 +259,7 @@ else
     --tests-total 1 --tests-skipped 0 --output-file ok-output.txt --artifact ok-artifact.txt 2>&1 1>/dev/null)
   RC=$?
   check "record-evidence exits 0 when .claude/state/ is gitignored" $RC
-  [ -z "$ERR_OUT" ]; check "no warning printed to stderr when .claude/state/ is already gitignored (got: $ERR_OUT)" $?
+  [ -z "$ERR_OUT" ] && RC_CHK=0 || RC_CHK=1; check "no warning printed to stderr when .claude/state/ is already gitignored (got: $ERR_OUT)" $RC_CHK
   rm -rf "$OK_DIR"
 
   echo "-- not inside a git repository at all: no warning, no crash --"
@@ -271,7 +271,7 @@ else
     --tests-total 1 --tests-skipped 0 --output-file nogit-output.txt --artifact nogit-artifact.txt 2>&1 1>/dev/null)
   RC=$?
   check "record-evidence exits 0 outside a git repository (no crash)" $RC
-  [ -z "$ERR_OUT" ]; check "no warning printed to stderr outside a git repository (got: $ERR_OUT)" $?
+  [ -z "$ERR_OUT" ] && RC_CHK=0 || RC_CHK=1; check "no warning printed to stderr outside a git repository (got: $ERR_OUT)" $RC_CHK
   SNAP=$(cd "$NOGIT_DIR" && bash "$SCRIPT" status nogit-task | jq -r '.evidence[-1].code_snapshot')
   [ "$SNAP" = "no-git-repository" ]; check "code_snapshot correctly records no-git-repository outside a git repo (got: $SNAP)" $?
   rm -rf "$NOGIT_DIR"
