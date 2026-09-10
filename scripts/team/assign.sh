@@ -177,12 +177,22 @@ if [ -n "$SKILLS" ]; then
   done
 fi
 
-# 4. Code snapshot identity: short commit SHA, or "uncommitted, base SHA X"
-#    if the tree is dirty. Same idea as hooks/scripts/timer.sh's
-#    starting_commit (git rev-parse --short HEAD), extended with an explicit
-#    dirty check since a dirty tree makes the SHA alone insufficient
-#    (see docs/rebuild/DESIGN.md, "Verification contract": "A commit SHA
-#    alone is insufficient when uncommitted changes exist.").
+# 4. Code snapshot identity: short commit SHA when the tree is clean, or
+#    "uncommitted, base SHA X, diff Y" when it is dirty, where Y is a short
+#    prefix of a sha256 hash over the ACTUAL dirty content -- tracked changes
+#    (via `git diff HEAD`) plus the content of every untracked file -- not
+#    just a bare clean/dirty flag. A bare flag plus the base SHA is NOT
+#    enough: two materially different dirty trees off the same base commit
+#    would otherwise produce the identical snapshot string. Same idea as
+#    hooks/scripts/timer.sh's starting_commit (git rev-parse --short HEAD),
+#    extended with an explicit dirty-content hash since a dirty tree makes
+#    the SHA alone insufficient (see docs/rebuild/DESIGN.md, "Verification
+#    contract": "A commit SHA alone is insufficient when uncommitted changes
+#    exist."). This is an exact mirror of task-state.sh's and
+#    complete-gate.sh's own compute_snapshot() -- kept as a separate copy
+#    since these are independent CLI entry points. If you change this,
+#    change task-state.sh's and complete-gate.sh's compute_snapshot to
+#    match.
 compute_snapshot() {
   local sha
   sha=$(git rev-parse --short HEAD 2>/dev/null || echo "")
@@ -191,7 +201,25 @@ compute_snapshot() {
     return
   fi
   if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
-    echo "uncommitted, base SHA $sha"
+    local diff_hash
+    diff_hash=$(
+      {
+        # Tracked changes (staged and unstaged) against the base commit.
+        git diff HEAD 2>/dev/null
+        # Untracked files: `git diff HEAD` says nothing about these, so list
+        # them (the porcelain line itself, which captures the path) and hash
+        # their actual content too -- a new/renamed untracked file with
+        # different content must produce a different hash, not just "some
+        # untracked file changed".
+        git status --porcelain --untracked-files=all 2>/dev/null | while IFS= read -r line; do
+          echo "$line"
+          case "$line" in
+            '??'*) f="${line#???}"; [ -f "$f" ] && cat "$f" ;;
+          esac
+        done
+      } | sha256sum | awk '{print $1}' | cut -c1-12
+    )
+    echo "uncommitted, base SHA $sha, diff $diff_hash"
   else
     echo "$sha"
   fi

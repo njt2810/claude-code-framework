@@ -80,14 +80,30 @@ if command -v git >/dev/null 2>&1; then
   CS_Y=$(echo "$ASSIGNMENT_Y" | jq -r '.code_snapshot')
   [ "$CS_Y" = "$COMMITTED_SHA" ]; check "code snapshot on a clean tree is the short commit SHA (got $CS_Y, expected $COMMITTED_SHA)" $?
 
-  echo "-- dirty tree: code snapshot records 'uncommitted, base SHA X' --"
+  echo "-- dirty tree: code snapshot records 'uncommitted, base SHA X, diff Y' --"
   echo "dirty change" >> "$GITCHECK/f"
   OUT=$(cd "$GITCHECK" && bash "$ASSIGN" part-y --role verifier --agent-type team-verifier --acceptance-text "criterion three" 2>&1); RC=$?
   check "assign.sh exits 0 for a valid verifier assignment (dirty tree)" $RC
   ASSIGNMENT_Y2=$(cd "$GITCHECK" && bash "$TASK_STATE" status part-y | jq '.assignments[-1]')
   CS_Y2=$(echo "$ASSIGNMENT_Y2" | jq -r '.code_snapshot')
-  [ "$CS_Y2" = "uncommitted, base SHA $COMMITTED_SHA" ]
-  check "dirty-tree code snapshot recorded as 'uncommitted, base SHA <sha>' (got: $CS_Y2)" $?
+  case "$CS_Y2" in
+    "uncommitted, base SHA $COMMITTED_SHA, diff "*) DIRTY_FORMAT_OK=0 ;;
+    *) DIRTY_FORMAT_OK=1 ;;
+  esac
+  check "dirty-tree code snapshot recorded as 'uncommitted, base SHA <sha>, diff <hash>' (got: $CS_Y2)" $DIRTY_FORMAT_OK
+  DIFF_HASH_Y2="${CS_Y2##*, diff }"
+  [ -n "$DIFF_HASH_Y2" ] && [ "$DIFF_HASH_Y2" != "$CS_Y2" ]
+  check "dirty-tree snapshot's diff-hash suffix is non-empty (got: $DIFF_HASH_Y2)" $?
+
+  echo "-- dirty tree, DIFFERENT content: diff-hash suffix changes even though base SHA and clean/dirty flag do not --"
+  echo "different dirty change, not the same content as before" > "$GITCHECK/f"
+  OUT=$(cd "$GITCHECK" && bash "$ASSIGN" part-y --role verifier --agent-type team-verifier --acceptance-text "criterion four" 2>&1); RC=$?
+  check "assign.sh exits 0 for a valid verifier assignment (differently-dirty tree)" $RC
+  ASSIGNMENT_Y3=$(cd "$GITCHECK" && bash "$TASK_STATE" status part-y | jq '.assignments[-1]')
+  CS_Y3=$(echo "$ASSIGNMENT_Y3" | jq -r '.code_snapshot')
+  DIFF_HASH_Y3="${CS_Y3##*, diff }"
+  [ "$DIFF_HASH_Y3" != "$DIFF_HASH_Y2" ]
+  check "two materially different dirty trees off the same base commit produce DIFFERENT snapshot strings (got: $CS_Y2 vs $CS_Y3)" $?
 else
   echo "  SKIP: git not on PATH, cannot test code-snapshot identity"
 fi

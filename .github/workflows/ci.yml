@@ -24,3 +24,6 @@ jobs:
 
       - name: Assignment-recording smoke tests
         run: bash tests/assign-smoke.sh
+
+      - name: Completion-gate smoke tests
+        run: bash tests/complete-gate-smoke.sh

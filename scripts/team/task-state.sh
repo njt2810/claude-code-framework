@@ -25,6 +25,9 @@
 #   task-state.sh record-assignment <id> --role builder|verifier --agent-type name
 #                 [--skill-hash path:hash,path:hash,...] [--acceptance-text text]
 #                 [--code-snapshot text]
+#   task-state.sh record-evidence <id> --command "<cmd>" --exit-code N
+#                 --tests-total N --tests-skipped N --output-file <path>
+#                 [--artifact <path>]... [--cwd <path>]
 #   task-state.sh status <id>
 #   task-state.sh list
 #
@@ -38,6 +41,28 @@
 # rather than calling this subcommand directly, since assign.sh is what
 # computes the skill hashes and the code snapshot identity in the first
 # place -- this subcommand just records whatever it's given.
+#
+# record-evidence (Part 1.4) appends a durable evidence record to the task's
+# own "evidence" array -- it does NOT change the task's state and it does
+# NOT complete the task. See docs/rebuild/DESIGN.md's "Verification
+# contract": the runner captures command, cwd, environment identity, time,
+# exit status, test totals/skipped, output location, and code snapshot
+# identity, and "a commit SHA alone is insufficient when uncommitted changes
+# exist." This subcommand is what durably records that evidence; it does not
+# itself judge whether the evidence is good enough to complete the task --
+# that judgment is scripts/team/complete-gate.sh's job, which reads this
+# array and is the ONLY sanctioned path to calling `complete` in the
+# intended workflow (see complete-gate.sh's own header for why).
+#
+# --cwd, --output-file, and every --artifact are resolved to absolute paths
+# HERE, at recording time, before being stored: --cwd first (relative to the
+# actual invocation directory, same default as when --cwd is omitted), then
+# --output-file and each --artifact relative to that now-absolute --cwd. An
+# already-absolute path is stored unchanged. This is what makes "verify the
+# exact claimed path" well-defined for complete-gate.sh later: without it, a
+# relative artifact path's meaning would depend on which directory
+# complete-gate.sh happens to be invoked from, which can differ from the
+# directory evidence was recorded from.
 #
 # States: planned -> building -> checking -> done
 #         (any of planned/building/checking) -> blocked -> (restored state)
@@ -73,8 +98,102 @@ if ! command -v jq >/dev/null 2>&1; then
   echo "ERROR: jq is required (install: winget install jqlang.jq)" >&2
   exit 2
 fi
+if ! command -v sha256sum >/dev/null 2>&1; then
+  echo "ERROR: sha256sum is required (used by compute_snapshot for dirty-tree content hashing)" >&2
+  exit 2
+fi
 
 now_iso() { date -Iseconds; }
+
+# Code snapshot identity: short commit SHA when the tree is clean, or
+# "uncommitted, base SHA X, diff Y" when it is dirty, where Y is a short
+# prefix of a sha256 hash over the ACTUAL dirty content -- tracked changes
+# (via `git diff HEAD`) plus the content of every untracked file -- not just
+# a bare clean/dirty flag. A bare flag plus the base SHA is NOT enough: two
+# materially different dirty trees off the same base commit would otherwise
+# produce the identical snapshot string, so evidence recorded against one
+# dirty state would be wrongly accepted as still-fresh after the tree
+# changed again without a commit. This is an exact mirror of
+# scripts/team/assign.sh's own compute_snapshot() -- kept as a second copy
+# rather than sourced, since these are independent CLI entry points, but the
+# logic must stay identical to assign.sh's (see docs/rebuild/DESIGN.md,
+# "Verification contract": "A commit SHA alone is insufficient when
+# uncommitted changes exist."). If you change this, change assign.sh's and
+# complete-gate.sh's compute_snapshot to match.
+#
+# REQUIRES .claude/state/ to be excluded from `git status` in the target
+# repo (this repo's own .gitignore already does this, as of Phase 1.2) --
+# otherwise this script's own state writes get hashed into the snapshot and
+# cause spurious "evidence is stale" failures in complete-gate.sh. See that
+# script's compute_snapshot comment for the full explanation.
+compute_snapshot() {
+  local sha
+  sha=$(git rev-parse --short HEAD 2>/dev/null || echo "")
+  if [ -z "$sha" ]; then
+    echo "no-git-repository"
+    return
+  fi
+  if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    local diff_hash
+    diff_hash=$(
+      {
+        # Tracked changes (staged and unstaged) against the base commit.
+        git diff HEAD 2>/dev/null
+        # Untracked files: `git diff HEAD` says nothing about these, so list
+        # them (the porcelain line itself, which captures the path) and hash
+        # their actual content too -- a new/renamed untracked file with
+        # different content must produce a different hash, not just "some
+        # untracked file changed".
+        git status --porcelain --untracked-files=all 2>/dev/null | while IFS= read -r line; do
+          echo "$line"
+          case "$line" in
+            '??'*) f="${line#???}"; [ -f "$f" ] && cat "$f" ;;
+          esac
+        done
+      } | sha256sum | awk '{print $1}' | cut -c1-12
+    )
+    echo "uncommitted, base SHA $sha, diff $diff_hash"
+  else
+    echo "$sha"
+  fi
+}
+
+# is_absolute_path <path> -- true if <path> is already absolute. Covers both
+# POSIX/MSYS-style ("/..." ) and Windows drive-letter style ("C:/..." or
+# "C:\...", realistic input on this project's primary platform, Git Bash on
+# Windows -- see assign.sh's own comment on colon-containing skill paths for
+# the same platform reality).
+is_absolute_path() {
+  case "$1" in
+    /*) return 0 ;;
+    [A-Za-z]:[/\\]*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# resolve_path <path> <base-dir> -- returns an absolute path. If <path> is
+# already absolute, returns it unchanged; otherwise joins it onto <base-dir>
+# (which must itself already be absolute -- callers resolve base-dir first).
+# Deliberately does NOT use `realpath`: that's a GNU coreutils extension not
+# guaranteed present in every environment this needs to run in (this repo's
+# other path handling, e.g. assign.sh's and complete-gate.sh's `HERE="$(cd
+# "$(dirname "$0")" && pwd)"`, resolves absolute paths via `cd ... && pwd`
+# rather than `realpath` for the same portability reason). Also deliberately
+# does NOT require <path> to exist on disk and does NOT collapse "." or ".."
+# segments -- a claimed artifact may not exist yet (recording is not
+# judging; see the ghost-artifact regression test), and any "." / ".."
+# segments left in a joined path are resolved correctly by the OS the same
+# way for `[ -f ]` / `[ -s ]` as for any other path, so textual collapsing
+# would only be cosmetic, not load-bearing, and skipping it keeps this
+# dependency-free.
+resolve_path() {
+  local path="$1" base="$2"
+  if is_absolute_path "$path"; then
+    echo "$path"
+  else
+    echo "${base%/}/$path"
+  fi
+}
 
 # Comma-separated string -> compact JSON array. Empty string -> [].
 csv_to_json_array() {
@@ -190,7 +309,7 @@ CMD="${1:-}"
 # via a single project-wide lock, held for the command's entire
 # read-modify-write sequence (see acquire_lock() above).
 case "$CMD" in
-  create|start|check|complete|block|unblock|record-assignment) acquire_lock ;;
+  create|start|check|complete|block|unblock|record-assignment|record-evidence) acquire_lock ;;
 esac
 
 case "$CMD" in
@@ -260,7 +379,8 @@ case "$CMD" in
         blocked_from: null, blocked_reason: null, resume_condition: null,
         created_at: $now, updated_at: $now,
         history: [{from: null, to: "planned", at: $now}],
-        assignments: []
+        assignments: [],
+        evidence: []
       }
     '
     echo "CREATED $ID \"$TITLE\" state=planned"
@@ -495,6 +615,116 @@ case "$CMD" in
     echo "RECORDED-ASSIGNMENT $ID role=$ROLE agent_type=$AGENT_TYPE skills=$SKILL_COUNT"
     ;;
 
+  record-evidence)
+    ID="${2:-}"
+    [ -n "$ID" ] || {
+      echo "Usage: task-state.sh record-evidence <id> --command \"<cmd>\" --exit-code N --tests-total N --tests-skipped N --output-file <path> [--artifact <path>]... [--cwd <path>]" >&2
+      exit 2
+    }
+    if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+
+    EV_COMMAND=""; EXIT_CODE=""; TESTS_TOTAL=""; TESTS_SKIPPED=""; OUTPUT_FILE=""; CWD_ARG=""
+    ARTIFACTS=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --command) [ $# -ge 2 ] || { echo "ERROR: --command requires a value" >&2; exit 2; }; EV_COMMAND="$2"; shift 2 ;;
+        --exit-code) [ $# -ge 2 ] || { echo "ERROR: --exit-code requires a value" >&2; exit 2; }; EXIT_CODE="$2"; shift 2 ;;
+        --tests-total) [ $# -ge 2 ] || { echo "ERROR: --tests-total requires a value" >&2; exit 2; }; TESTS_TOTAL="$2"; shift 2 ;;
+        --tests-skipped) [ $# -ge 2 ] || { echo "ERROR: --tests-skipped requires a value" >&2; exit 2; }; TESTS_SKIPPED="$2"; shift 2 ;;
+        --output-file) [ $# -ge 2 ] || { echo "ERROR: --output-file requires a value" >&2; exit 2; }; OUTPUT_FILE="$2"; shift 2 ;;
+        --artifact) [ $# -ge 2 ] || { echo "ERROR: --artifact requires a value" >&2; exit 2; }; ARTIFACTS+=("$2"); shift 2 ;;
+        --cwd) [ $# -ge 2 ] || { echo "ERROR: --cwd requires a value" >&2; exit 2; }; CWD_ARG="$2"; shift 2 ;;
+        *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+
+    [ -n "$EV_COMMAND" ] || { echo "ERROR: --command is required" >&2; exit 2; }
+    [ -n "$OUTPUT_FILE" ] || { echo "ERROR: --output-file is required" >&2; exit 2; }
+
+    # Same validation style as `create`'s --budget check: non-negative
+    # integers only, reject non-numeric input cleanly rather than silently
+    # coercing it.
+    [ -n "$EXIT_CODE" ] || { echo "ERROR: --exit-code is required" >&2; exit 2; }
+    case "$EXIT_CODE" in
+      ''|*[!0-9]*) echo "ERROR: --exit-code must be a non-negative integer (got: $EXIT_CODE)" >&2; exit 2 ;;
+    esac
+    [ -n "$TESTS_TOTAL" ] || { echo "ERROR: --tests-total is required" >&2; exit 2; }
+    case "$TESTS_TOTAL" in
+      ''|*[!0-9]*) echo "ERROR: --tests-total must be a non-negative integer (got: $TESTS_TOTAL)" >&2; exit 2 ;;
+    esac
+    [ -n "$TESTS_SKIPPED" ] || { echo "ERROR: --tests-skipped is required" >&2; exit 2; }
+    case "$TESTS_SKIPPED" in
+      ''|*[!0-9]*) echo "ERROR: --tests-skipped must be a non-negative integer (got: $TESTS_SKIPPED)" >&2; exit 2 ;;
+    esac
+
+    # Resolve --cwd itself to an absolute path FIRST, relative to the actual
+    # invocation directory ($(pwd), the same default used when --cwd is
+    # omitted) -- otherwise a caller-supplied relative --cwd (e.g. "subdir")
+    # would leave every artifact/output_file path resolved below still
+    # relative to some other, ambiguous base. This is the fix for the
+    # artifact/output_file path-resolution ambiguity between recording time
+    # and gate time (see complete-gate.sh's check 3): every path this
+    # subcommand records from here on is stored fully absolute, so a later
+    # `complete-gate.sh` run from any directory resolves it identically,
+    # without ever needing to guess at or reconstruct a cwd.
+    [ -n "$CWD_ARG" ] || CWD_ARG="$(pwd)"
+    CWD_ARG=$(resolve_path "$CWD_ARG" "$(pwd)")
+
+    # require_task exits (before any write) if the state file or task is
+    # missing -- same defense-in-depth as record-assignment.
+    require_task "$ID" >/dev/null
+
+    # --output-file: same ambiguity as --artifact below -- resolve to
+    # absolute against the (now-absolute) recorded cwd before storing, so
+    # complete-gate.sh's Bug-3 output_file check needs no cwd guessing either.
+    OUTPUT_FILE=$(resolve_path "$OUTPUT_FILE" "$CWD_ARG")
+
+    # Artifacts: resolve each to an absolute path against the (now-absolute)
+    # recorded cwd BEFORE building the JSON array below -- an artifact
+    # recorded as a relative path from one directory must resolve to the
+    # same file regardless of which directory complete-gate.sh is later
+    # invoked from; storing it pre-resolved is what makes that unambiguous,
+    # rather than leaving complete-gate.sh to guess a cwd at check time.
+    if [ "${#ARTIFACTS[@]}" -gt 0 ]; then
+      RESOLVED_ARTIFACTS=()
+      for _art in "${ARTIFACTS[@]}"; do
+        RESOLVED_ARTIFACTS+=("$(resolve_path "$_art" "$CWD_ARG")")
+      done
+      ARTIFACTS=("${RESOLVED_ARTIFACTS[@]}")
+    fi
+
+    # Artifacts: bash array -> JSON array of strings, via jq --args so paths
+    # containing spaces or special characters survive intact (each array
+    # element reaches jq as its own argv entry). ${ARTIFACTS[@]+"${ARTIFACTS[@]}"}
+    # is the portable idiom for "expand this array, or nothing, under set -u"
+    # that also behaves under older bash where expanding a truly empty array
+    # directly can error.
+    ARTIFACTS_JSON=$(jq -c -n --args '$ARGS.positional' ${ARTIFACTS[@]+"${ARTIFACTS[@]}"})
+
+    # Environment identity: OS + bash version is enough per BUILD_PLAN.md
+    # Part 1.4's own instruction -- not overengineered further.
+    ENV_ID="$(uname -s 2>/dev/null || echo unknown) / $(bash --version 2>/dev/null | head -1)"
+
+    SNAPSHOT=$(compute_snapshot)
+    NOW=$(now_iso)
+
+    atomic_update --arg id "$ID" --arg command "$EV_COMMAND" --arg cwd "$CWD_ARG" \
+      --arg env "$ENV_ID" --arg now "$NOW" --argjson exit_code "$EXIT_CODE" \
+      --argjson tests_total "$TESTS_TOTAL" --argjson tests_skipped "$TESTS_SKIPPED" \
+      --arg output_file "$OUTPUT_FILE" --argjson artifacts "$ARTIFACTS_JSON" \
+      --arg snapshot "$SNAPSHOT" '
+      .tasks[$id].evidence = ((.tasks[$id].evidence // []) + [{
+          command: $command, cwd: $cwd, environment: $env, recorded_at: $now,
+          exit_code: $exit_code, tests_total: $tests_total,
+          tests_skipped: $tests_skipped, output_file: $output_file,
+          artifacts: $artifacts, code_snapshot: $snapshot
+        }])
+      | .tasks[$id].updated_at = $now
+    '
+    ARTIFACT_COUNT=$(echo "$ARTIFACTS_JSON" | jq 'length')
+    echo "RECORDED-EVIDENCE $ID exit_code=$EXIT_CODE tests_total=$TESTS_TOTAL tests_skipped=$TESTS_SKIPPED artifacts=$ARTIFACT_COUNT snapshot=\"$SNAPSHOT\""
+    ;;
+
   status)
     ID="${2:-}"
     [ -n "$ID" ] || { echo "Usage: task-state.sh status <id>" >&2; exit 2; }
@@ -538,6 +768,9 @@ Commands:
   record-assignment <id> --role builder|verifier --agent-type name
                      [--skill-hash path:hash,path:hash,...]
                      [--acceptance-text text] [--code-snapshot text]
+  record-evidence <id> --command "<cmd>" --exit-code N --tests-total N
+                   --tests-skipped N --output-file <path>
+                   [--artifact <path>]... [--cwd <path>]
   status <id>
   list
 
