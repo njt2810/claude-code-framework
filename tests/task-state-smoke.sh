@@ -165,7 +165,7 @@ OUT_B_LIST=$(cd "$ISO_B" && bash "$SCRIPT" list 2>&1)
 ! echo "$OUT_B_LIST" | grep -q "iso-only-in-a"
 check "task created in dir A is invisible via 'list' in dir B" $?
 
-OUT_B_STATUS=$(cd "$ISO_B" && bash "$SCRIPT" status iso-only-in-a 2>&1); RC=$?
+( cd "$ISO_B" && bash "$SCRIPT" status iso-only-in-a >/dev/null 2>&1 ); RC=$?
 [ "$RC" != "0" ]; check "'status' for A's task from dir B returns not-found (exit $RC)" $?
 
 ( cd "$ISO_B" && bash "$SCRIPT" create iso-only-in-a "B's own version" >/dev/null 2>&1 )
