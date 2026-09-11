@@ -1290,3 +1290,479 @@ require_approval_verdict() {
 # instead of printing it -- so it can be called DIRECTLY rather than inside
 # `$( )`, where its `exit` only ever killed the subshell. Its two not-found
 # messages are preserved verbatim there.
+
+# --- Part 2.4: declared file ownership, overlap, combined changes, regression -
+
+# OWNERSHIP_JQ_DEFS -- the glob vocabulary shared by every ownership read in
+# this file. Held in a variable rather than retyped per program so the readers
+# below cannot drift apart on what a pattern MEANS. complete-gate.sh carries
+# its own copy, for the same reason its compute_snapshot is a copy: these are
+# independent CLI entry points and that duplication is this project's existing,
+# deliberate convention.
+#
+# WHAT A DECLARED OWNERSHIP PATTERN IS, EXACTLY -- stated here because the
+# whole of check-overlap's answer rests on it:
+#   - A repository-relative path glob. `*` and `?` are the only metacharacters,
+#     and `*` DOES cross directory separators (so "scripts/*" owns
+#     "scripts/team/task-state.sh"). That is the simple, predictable reading;
+#     it is not .gitignore's, and it is not shell globbing's `*`-stops-at-`/`.
+#   - Matching is CASE-SENSITIVE. Paths are case-sensitive on the platforms CI
+#     runs on, and case-folding here would report conflicts between genuinely
+#     distinct files.
+#   - Every other character is matched literally.
+#
+# HOW TWO PATTERNS ARE JUDGED TO OVERLAP, AND WHICH DIRECTION IT ERRS IN.
+# Deciding whether two arbitrary globs can match a common path is a
+# language-intersection problem in general; this uses two rules instead, and
+# the rules are chosen so that the error they can make is the SAFE one. Two
+# patterns overlap when EITHER holds:
+#   1. CONTAINMENT: one pattern, read as a regex, matches the other read as a
+#      literal string ("scripts/team/*" vs "scripts/team/task-state.sh"; and an
+#      identical pair, which is the same test).
+#   2. SHARED LITERAL PREFIX, when BOTH patterns contain a wildcard: the text
+#      before each pattern's first `*`/`?` is a prefix of the other's. This
+#      catches the partial-wildcard pairs containment misses
+#      ("tests/a*.sh" vs "tests/*b.sh", which both match "tests/ab.sh").
+#
+# NO FALSE NEGATIVES, and the argument for that rather than a hope:
+#   - If NEITHER pattern has a wildcard, each matches exactly itself, and rule
+#     1 is then literally string equality. Exact.
+#   - If exactly ONE has a wildcard, the other matches exactly one path, so the
+#     patterns overlap if and only if that one path is in the wildcard
+#     pattern's language -- which is precisely what rule 1 tests, in that
+#     direction. Exact.
+#   - If BOTH have wildcards and their literal prefixes are NOT in a prefix
+#     relation, they differ at some index where both still have a LITERAL
+#     character (a prefix ends at the first wildcard, so everything inside it
+#     is mandatory), so no path can satisfy both. Genuinely disjoint.
+#   - If BOTH have wildcards and the prefixes ARE in a prefix relation, rule 2
+#     reports a conflict.
+#   Every case is therefore either decided exactly or reported.
+#
+# FALSE POSITIVES ARE POSSIBLE, AND ARE THE PRICE. The last case above is not
+# exact: "src/*/a.js" and "src/*/b.js" share the literal prefix "src/" and are
+# reported as conflicting even though no path matches both. That over-report is
+# the direction being chosen, not one overlooked -- a false conflict costs a
+# conversation, a missed one costs two builders editing the same file -- and it
+# is why check-overlap's exit 1 means "these declarations may collide", which
+# the reporting task can settle by declaring more precisely.
+OWNERSHIP_JQ_DEFS='
+  def glob_has_wildcard: (index("*") != null) or (index("?") != null);
+  def glob_prefix:
+    (index("*")) as $a | (index("?")) as $b
+    | if ($a == null) and ($b == null) then .
+      elif $a == null then .[0:$b]
+      elif $b == null then .[0:$a]
+      elif $a < $b then .[0:$a]
+      else .[0:$b]
+      end;
+  def glob_regex:
+    "^" + ((. / "") | map(
+        . as $c
+        | if $c == "*" then ".*"
+          elif $c == "?" then "."
+          elif (("\\.[]{}()+^$|" | index($c)) != null) then "\\" + $c
+          else $c end) | join("")) + "$";
+  def glob_overlap($p; $q):
+    if ($q | test($p | glob_regex)) then true
+    elif ($p | test($q | glob_regex)) then true
+    elif ($p | glob_has_wildcard) and ($q | glob_has_wildcard)
+      then (($p | glob_prefix) as $pp | ($q | glob_prefix) as $qp
+            | ($pp | startswith($qp)) or ($qp | startswith($pp)))
+    else false
+    end;
+'
+
+# normalise_owned_paths <comma-separated-patterns> -> OWNED_PATHS_JSON
+#
+# The ONE place a declared ownership pattern is cleaned up and validated, used
+# by both `create --owns` and `declare-ownership --owns` so the two cannot
+# accept different things. Called BEFORE any state read and before any write,
+# so a rejected declaration leaves the state file byte-for-byte unchanged, and
+# it refuses with exit 2 (bad usage) because what is wrong is the ARGUMENT, not
+# the record -- unlike every other helper in this file, whose refusals are
+# about stored state.
+#
+# NORMALISATION (applied, then stored, so comparisons later are on settled
+# values rather than on whatever whitespace a caller typed): surrounding
+# whitespace trimmed, runs of "/" collapsed to one, a leading "./" removed,
+# empty entries dropped, duplicates dropped keeping first-seen order.
+#
+# REFUSED, by name: an absolute path (leading "/", or a Windows "C:" drive
+# prefix -- realistic input on this project's primary platform, the same
+# reality record-assignment's colon check already deals with); a backslash
+# (declared paths are POSIX-relative, the same convention skill paths use);
+# any ".." segment; and any control character. Each of those would make a
+# declaration mean something other than "a path inside this repository", and a
+# scope check is worth nothing if the scope cannot be located.
+#
+# A comma therefore cannot appear inside a pattern -- it is the separator, the
+# same as --depends and --skills. Disclosed rather than worked around: paths
+# with commas are vanishingly rare and a second syntax to support them would
+# cost more than it buys.
+OWNED_PATHS_JSON=""
+normalise_owned_paths() {
+  local csv="$1" verdict
+  verdict=$(jq -Rs -r '
+    def norm: sub("^[[:space:]]+"; "") | sub("[[:space:]]+$"; "")
+              | gsub("/+"; "/") | sub("^\\./"; "");
+    (split(",") | map(norm) | map(select(length > 0))) as $p
+    | [ $p[] | select(startswith("/") or test("^[A-Za-z]:") or (index("\\") != null)
+          or (. == "..") or startswith("../") or endswith("/..")
+          or (index("/../") != null) or test("[[:cntrl:]]")) ] as $bad
+    | if ($bad | length) > 0
+      then "bad:" + ($bad | map("\"" + . + "\"") | join(", "))
+      else "ok:" + ((reduce $p[] as $x ([]; if (index($x)) == null then . + [$x] else . end)) | tojson)
+      end
+  ' <<< "$csv")
+  case "$verdict" in
+    ok:*) OWNED_PATHS_JSON="${verdict#ok:}"; return 0 ;;
+    bad:*)
+      echo "ERROR: --owns contains pattern(s) that are not repository-relative paths: ${verdict#bad:}" >&2
+      echo "  A declared ownership pattern must be relative to the repository root, use POSIX '/' separators, and contain no '..' segment — an absolute path, a Windows drive prefix, a backslash or a '..' escape would make the declaration mean something other than 'a path inside this repository', and a scope check is worth nothing if the scope cannot be located. Nothing was changed." >&2
+      exit 2
+      ;;
+    *)
+      echo "ERROR: --owns could not be parsed at all (no verdict was produced). Refusing — nothing was changed." >&2
+      exit 2
+      ;;
+  esac
+}
+
+# require_overlap_verdict <id> -> OVERLAP_VERDICT + OVERLAP_DETAIL
+#
+# THE SAFETY-CRITICAL READ OF PART 2.4's ownership half. It answers, for
+# `check-overlap`, "does any OTHER task that is still active declare ownership
+# that overlaps this task's?" -- and the ONLY verdict that may ever mean "no
+# conflict, go ahead" is the literal word `none`. Every other outcome,
+# including every failure of the read itself, lands on a verdict the caller
+# turns into a NONZERO exit. NONZERO NEVER MEANS "NO CONFLICT".
+#
+# OVERLAP_VERDICT is the decision and is one of exactly four words:
+#   none      -- this task declares owned paths, and no active other task's
+#                declaration overlaps them by the two rules above.
+#   conflict  -- at least one active other task declares an overlapping path.
+#   unowned   -- this task declares no owned paths at all, so no overlap could
+#                be computed. This is NOT "no conflict": it is the absence of
+#                the input the question is asked about, and reporting it as a
+#                pass would be this project's whole defect class (an
+#                unavailable input becoming a value that means "the condition
+#                is satisfied") in the one read whose answer is "go ahead".
+#   missing   -- no such task.
+# OVERLAP_DETAIL is everything after the first newline and is DISPLAY ONLY --
+# pre-formatted lines the caller prints. Nothing branches on it. Same split,
+# and the same reason, as require_approval_verdict's.
+#
+# "ACTIVE" MEANS "NOT `done`", and it is deliberately that broad. A task that
+# is blocked, paused, awaiting a decision, or out of attempt budget has not
+# given its files back -- it is coming back to them -- so it still conflicts.
+# Only `done` releases a declaration. (There is no rejected/abandoned TASK
+# state in this system: `record-rejection` rejects a decision card, not a task,
+# and returns the task to work.)
+#
+# ONE CORRUPT TASK RECORD REFUSES EVERY OVERLAP CHECK IN THE PROJECT --
+# DISCLOSED LIMIT, NOT AN OVERSIGHT. Every task's `state` must be readable
+# before ANY of them can be classified active-or-done, so a single record with
+# an unusable state makes this refuse for every task, including pairs a
+# perfectly good pair of declarations would have cleared. That is the same
+# fail-closed whole-array validation `approvals`, `attempts` and
+# `external_actions` already use, and narrowing it would mean deciding "this
+# task is done, ignore it" from a value that could not be read. `owns` is
+# validated slightly more narrowly -- for the subject plus the active others,
+# i.e. exactly the records this answer is computed from -- since a `done`
+# task's declaration is not consulted at all.
+# ABSENT-CASE: no `owns` key, or null, is the legitimate never-declared record
+# and is treated as "declares nothing" -- which yields `unowned` for the
+# subject (a refusal) and simply contributes no patterns for an other task.
+OVERLAP_VERDICT=""
+OVERLAP_DETAIL=""
+require_overlap_verdict() {
+  local id="$1" raw
+  raw=$(jq -r --arg id "$id" "$OWNERSHIP_JQ_DEFS"'
+    if type != "object" then "bad:tasks:the state file root is not a JSON object — it is " + (type)
+    elif (has("tasks") | not) or (.tasks == null) then "missing"
+    elif (.tasks | type) != "object" then "bad:tasks:.tasks is not a JSON object — " + (.tasks | tojson | .[0:200])
+    elif (.tasks | has($id) | not) then "missing"
+    else .tasks as $T
+      | [ $T | to_entries[] | select((.value | type) != "object") | .key ] as $badrec
+      | if ($badrec | length) > 0
+        then "bad:state:task records that are not JSON objects — " + ($badrec | tojson | .[0:200])
+        else [ $T | to_entries[]
+               | select(((.value | has("state")) | not)
+                        or ((.value.state | type) != "string")
+                        or ((.value.state | length) == 0))
+               | .key ] as $badstate
+          | if ($badstate | length) > 0
+            then "bad:state:task records whose own state cannot be read, so they cannot be classified as active or done — " + ($badstate | tojson | .[0:200])
+            else [ $T | to_entries[]
+                   | select((.key == $id) or (.value.state != "done"))
+                   | select((.value | has("owns")) and (.value.owns != null)
+                            and (((.value.owns | type) != "array")
+                                 or (([.value.owns[] | select((type != "string") or (length == 0))] | length) > 0)))
+                   | .key ] as $badowns
+              | if ($badowns | length) > 0
+                then "bad:owns:tasks whose owns field is not an array of non-empty path strings — " + ($badowns | tojson | .[0:200])
+                else (($T[$id].owns) // []) as $mine
+                  | if ($mine | length) == 0 then "unowned"
+                    else [ $T | to_entries[]
+                           | select(.key != $id) | select(.value.state != "done")
+                           | . as $o
+                           | ((.value.owns) // []) as $theirs
+                           | [ $mine[] as $m | $theirs[] as $t
+                               | select(glob_overlap($m; $t))
+                               | "      \"" + $m + "\"  overlaps  \"" + $t + "\"" ] as $hits
+                           | select(($hits | length) > 0)
+                           | "  - task \"" + $o.key + "\" (state: " + $o.value.state + ") also claims:\n" + ($hits | join("\n")) ] as $conf
+                      | ([ $T | to_entries[] | select(.key != $id) | select(.value.state != "done") ] | length) as $nactive
+                      | if ($conf | length) == 0
+                        then "none\n  declared by this task: " + ($mine | map("\"" + . + "\"") | join(", "))
+                             + "\n  compared against " + ($nactive | tostring) + " other active task(s); none of them declares an overlapping path."
+                        else "conflict\n" + ($conf | join("\n"))
+                        end
+                      end
+                end
+            end
+        end
+    end
+  ' "$STATE" 2>/dev/null)
+
+  # CRLF NORMALISATION -- same hazard, same fix, same reason as
+  # require_approval_verdict's: this read is deliberately MULTI-LINE, and the
+  # jq build on the primary platform (Windows, Git Bash) writes stdout in TEXT
+  # MODE, so an INTERNAL newline arrives as CR LF and would leave the verdict
+  # word as "none\r" -- sending a clean answer down the catch-all into a
+  # corruption refusal. Only CRLF PAIRS are collapsed.
+  raw="${raw//$'\r'$'\n'/$'\n'}"
+  OVERLAP_VERDICT="${raw%%$'\n'*}"
+  if [ "$OVERLAP_VERDICT" = "$raw" ]; then
+    OVERLAP_DETAIL=""
+  else
+    OVERLAP_DETAIL="${raw#*$'\n'}"
+  fi
+
+  # The `bad:` verdict carries the FIELD that could not be read, as
+  # `bad:<field>:<what was wrong>`, so the refusal names `state` for an
+  # unreadable state and `owns` for an unreadable declaration rather than
+  # blaming one field for the other's problem. Split on the FIRST colon only --
+  # the description is free text and contains colons of its own.
+  case "$OVERLAP_VERDICT" in
+    none|conflict|unowned|missing) return 0 ;;
+    bad:*)
+      local rest field desc
+      rest="${OVERLAP_VERDICT#bad:}"
+      field="${rest%%:*}"
+      desc="${rest#*:}"
+      state_field_fail "$id" "$field" "every task record to carry a readable state, and every consulted owns field to be an array of non-empty path strings" "$desc"
+      ;;
+    # EXPLICIT CATCH-ALL. An empty verdict means jq itself failed and
+    # `2>/dev/null` swallowed its message; any other word means this program was
+    # edited without extending the case. Both REFUSE -- there is no route from
+    # an unreadable state file to "no conflict".
+    *)     state_field_fail "$id" "owns" "every task record to carry a readable state, and every consulted owns field to be an array of non-empty path strings" "unreadable — the state file could not be parsed as JSON, so no overlap verdict was produced" ;;
+  esac
+}
+
+# require_combined_verdict <current-snapshot> <id>... -> COMBINED_VERDICT +
+#                                                        COMBINED_DETAIL
+#
+# The read behind `check-combined`. It answers ONE question about a SET of
+# finished parts -- "is every one of these parts' recorded evidence still
+# current against the code as it stands right now?" -- which is what
+# DESIGN.md's "verify combined changes before release" reduces to once you stop
+# trusting per-part verdicts that were each true at a different moment. Part A
+# can pass its own gate, part B can then land and change the same tree, and
+# part A's completion is now a statement about code that no longer exists.
+# Each gate saw a true thing; the combination was never checked.
+#
+# COMBINED_VERDICT is one of exactly six words, and only `ok` means verified:
+#   ok            -- every named task is done and every one's latest evidence
+#                    was recorded against the snapshot the code is at now.
+#   stale         -- at least one task's evidence predates the current code.
+#   missing       -- a named task does not exist.
+#   notdone       -- a named task has not been completed.
+#   noevidence    -- a named task has no evidence records at all.
+#   unverifiable  -- there is no version control, so no snapshot on either side
+#                    is a code identity and nothing could be compared.
+# plus `bad:...`, which REFUSES. COMBINED_DETAIL is display only.
+#
+# THE "PREDATES ANOTHER'S CHANGES" REPORT, and why it is display-only. For each
+# stale task the detail names the tasks in the set whose evidence is NEWER, so
+# a reader sees not just "this is stale" but "this was verified before those
+# parts landed". That ordering is taken from `recorded_at` timestamps, which is
+# exactly the kind of value this file refuses to let gate a decision: they are
+# local clock readings and can carry different UTC offsets, so a string
+# comparison between two of them is not reliable in general. It is reliable
+# enough to ORDER A REPORT, and it decides nothing -- the VERDICT comes solely
+# from the snapshot comparison, which is a content identity. Do not promote the
+# timestamp comparison into the verdict.
+#
+# THE NON-GIT CASE, decided the same way check-approval decides it: a
+# $NO_GIT_SNAPSHOT on either side yields `unverifiable`, never `ok`. Two
+# placeholders match for every possible state of the code, so reading that
+# match as "the combination is current" would be the defect class landing in
+# the one read whose answer is "this set is safe to release".
+COMBINED_VERDICT=""
+COMBINED_DETAIL=""
+require_combined_verdict() {
+  local cur="$1" raw first_id ids_json
+  shift
+  first_id="${1:-<set>}"
+  # The ids reach jq as ONE --argjson array rather than through `--args`.
+  # `--args` makes every remaining argument positional -- including the state
+  # FILE -- so `jq --args 'prog' "$STATE" id1 id2` reads the program's input
+  # from stdin and treats the state file's path as a task id. It fails with a
+  # parse error that this function's own catch-all then reports as a corrupt
+  # record, which is a refusal (safe) but blames the wrong thing entirely.
+  # Building the array with a separate `jq -n --args` (no file, so positional
+  # is unambiguous) is the same idiom record-evidence already uses for its
+  # artifact paths, and it keeps paths with spaces intact.
+  ids_json=$(jq -c -n --args '$ARGS.positional' "$@")
+  raw=$(jq -r --arg cur "$cur" --arg nogit "$NO_GIT_SNAPSHOT" --argjson ids "$ids_json" '
+    if type != "object" then "bad:tasks:the state file root is not a JSON object — it is " + (type)
+      elif (has("tasks") | not) or (.tasks == null) or ((.tasks | type) != "object")
+        then "bad:tasks:.tasks is not a JSON object mapping task ids to task records"
+      else .tasks as $T
+        | [ $ids[] | . as $i | select(($T | has($i)) | not) ] as $missing
+        | if ($missing | length) > 0
+          then "missing\n  not found: " + ($missing | join(", "))
+          else [ $ids[] | select(($T[.] | type) != "object") ] as $badrec
+            | if ($badrec | length) > 0
+              then "bad:state:task records that are not JSON objects — " + ($badrec | tojson | .[0:200])
+              else [ $ids[] | select((($T[.] | has("state")) | not)
+                                     or (($T[.].state | type) != "string")
+                                     or (($T[.].state | length) == 0)) ] as $badstate
+                | if ($badstate | length) > 0
+                  then "bad:state:task records whose own state cannot be read — " + ($badstate | tojson | .[0:200])
+                  else [ $ids[] | select($T[.].state != "done")
+                         | . + " (state: " + $T[.].state + ")" ] as $notdone
+                    | if ($notdone | length) > 0
+                      then "notdone\n  not completed: " + ($notdone | join(", "))
+                      else [ $ids[] | select(($T[.] | has("evidence"))
+                                             and ($T[.].evidence != null)
+                                             and (($T[.].evidence | type) != "array")) ] as $badev
+                        | if ($badev | length) > 0
+                          then "bad:evidence:tasks whose evidence field is not a JSON array — " + ($badev | tojson | .[0:200])
+                          else [ $ids[] | select(((($T[.].evidence) // []) | length) == 0) ] as $noev
+                            | if ($noev | length) > 0
+                              then "noevidence\n  no evidence recorded: " + ($noev | join(", "))
+                              else [ $ids[] | select((($T[.].evidence[-1] | type) != "object")
+                                       or (($T[.].evidence[-1] | has("code_snapshot")) | not)
+                                       or (($T[.].evidence[-1].code_snapshot | type) != "string")
+                                       or (($T[.].evidence[-1].code_snapshot | length) == 0)
+                                       or (($T[.].evidence[-1] | has("recorded_at")) | not)
+                                       or (($T[.].evidence[-1].recorded_at | type) != "string")
+                                       or (($T[.].evidence[-1].recorded_at | length) == 0)) ] as $badlatest
+                                | if ($badlatest | length) > 0
+                                  then "bad:evidence:tasks whose latest evidence entry carries no usable code_snapshot and recorded_at — " + ($badlatest | tojson | .[0:200])
+                                  else [ $ids[] | {id: ., snap: $T[.].evidence[-1].code_snapshot, at: $T[.].evidence[-1].recorded_at} ] as $E
+                                    | if ($cur == $nogit) or (([ $E[] | select(.snap == $nogit) ] | length) > 0)
+                                      then "unverifiable\n  current snapshot: " + $cur + "\n"
+                                           + ([ $E[] | "  - " + .id + ": evidence recorded against " + .snap ] | join("\n"))
+                                      else [ $E[] | select(.snap != $cur) ] as $stale
+                                        | if ($stale | length) == 0
+                                          then "ok\n  current snapshot: " + $cur + "\n"
+                                               + ([ $E[] | "  - " + .id + ": evidence recorded at " + .at + ", against this exact snapshot" ] | join("\n"))
+                                          else "stale\n  current snapshot: " + $cur + "\n"
+                                               + ([ $stale[] | . as $s
+                                                    | ([ $E[] | select(.at > $s.at) | .id ]) as $newer
+                                                    | "  - " + $s.id + ": evidence recorded at " + $s.at
+                                                      + " against snapshot " + $s.snap + ", which is NOT the current snapshot"
+                                                      + (if ($newer | length) > 0
+                                                         then "\n      its evidence predates the evidence recorded for: " + ($newer | join(", "))
+                                                         else "\n      it holds the NEWEST evidence in this set, so the code moved after every part here was verified"
+                                                         end) ] | join("\n"))
+                                          end
+                                      end
+                                  end
+                              end
+                          end
+                      end
+                  end
+              end
+          end
+      end
+  ' "$STATE" 2>/dev/null)
+
+  # Same CRLF hazard and same fix as require_overlap_verdict above.
+  raw="${raw//$'\r'$'\n'/$'\n'}"
+  COMBINED_VERDICT="${raw%%$'\n'*}"
+  if [ "$COMBINED_VERDICT" = "$raw" ]; then
+    COMBINED_DETAIL=""
+  else
+    COMBINED_DETAIL="${raw#*$'\n'}"
+  fi
+
+  # As with require_overlap_verdict, the `bad:` verdict carries the FIELD that
+  # could not be read (`bad:<field>:<what was wrong>`) so the refusal names
+  # `state` for an unreadable state and `evidence` for an unreadable evidence
+  # array, rather than blaming one for the other. Split on the FIRST colon only.
+  case "$COMBINED_VERDICT" in
+    ok|stale|missing|notdone|noevidence|unverifiable) return 0 ;;
+    bad:*)
+      local rest field desc
+      rest="${COMBINED_VERDICT#bad:}"
+      field="${rest%%:*}"
+      desc="${rest#*:}"
+      state_field_fail "$first_id" "$field" "every named task to be a JSON object with a readable state and, where present, an evidence array whose latest entry carries a non-empty code_snapshot and recorded_at" "$desc"
+      ;;
+    *)     state_field_fail "$first_id" "evidence" "every named task to be a JSON object with a readable state and, where present, an evidence array whose latest entry carries a non-empty code_snapshot and recorded_at" "unreadable — the state file could not be parsed as JSON, so no combined verdict was produced" ;;
+  esac
+}
+
+# require_regression_floor <id> -> REGRESSION_FLOOR ("" when the task has NEVER
+# been reopened, which is every task that predates Part 2.4 and every task that
+# has simply never regressed).
+#
+# `evidence_floor` is written by `regress` and by nothing else. It holds the
+# LENGTH of the task's evidence array at the instant the task was reopened, and
+# it exists to make one sentence enforceable: a reopened task may not re-reach
+# `done` on the evidence that was already there when it was reopened.
+#
+# WHY A COUNT AND NOT A TIMESTAMP. The obvious spelling is "evidence must be
+# newer than the regression", compared on `recorded_at`. Those are local clock
+# readings that can carry different UTC offsets, so a string comparison between
+# two of them is not sound, and the alternative -- parsing and normalising
+# ISO-8601 offsets in bash -- is a pile of arithmetic guarding something that
+# does not need it. The evidence array is APPEND-ONLY (only `record-evidence`
+# writes it, and only by appending), so "the array is longer than it was" is an
+# exact, monotonic statement of "at least one record has been added since",
+# with no clock in it at all. And because both `complete` and the gate read
+# `evidence[-1]`, a longer array means the entry being judged IS one of the new
+# ones.
+#
+# ABSENT-CASE, and why it is the ONLY thing that keeps this feature optional:
+# no `evidence_floor` key at all means this task was never reopened, and the
+# caller must then behave EXACTLY as it did before this field existed -- in
+# particular `complete` must not start requiring evidence of tasks that never
+# needed any. So absent publishes "" rather than 0; 0 is a real floor (a task
+# reopened before any evidence was ever recorded) and must not be confused with
+# it. PRESENT but not a non-negative integer is corruption and REFUSES.
+REGRESSION_FLOOR=""
+require_regression_floor() {
+  local id="$1" verdict
+  verdict=$(jq -r --arg id "$id" '
+    .tasks[$id] as $t
+    | if ($t | type) != "object" then "shape:" + ($t | tojson | .[0:200])
+      elif ($t | has("evidence_floor") | not) then "absent"
+      else ($t.evidence_floor) as $v
+        | if ($v | type) == "number" and $v >= 0 and $v == ($v | floor)
+          then "ok:" + ($v | tostring)
+          else "bad:" + ($v | tojson | .[0:200])
+          end
+      end
+  ' "$STATE" 2>/dev/null)
+  case "$verdict" in
+    absent) REGRESSION_FLOOR=""; return 0 ;;
+    ok:*)
+      REGRESSION_FLOOR="${verdict#ok:}"
+      case "$REGRESSION_FLOOR" in
+        ''|*[!0-9]*)
+          state_field_fail "$id" "evidence_floor" "an evidence-array length that renders as a plain non-negative integer" "$REGRESSION_FLOOR" ;;
+      esac
+      return 0
+      ;;
+    shape:*) state_field_fail "$id" "evidence_floor" "a task record that is a JSON object" "${verdict#shape:}" ;;
+    bad:*)   state_field_fail "$id" "evidence_floor" "a non-negative integer evidence-array length recorded when this task was reopened" "${verdict#bad:}" ;;
+    *)       state_field_fail "$id" "evidence_floor" "a non-negative integer evidence-array length recorded when this task was reopened" "unreadable — the task record could not be parsed as JSON" ;;
+  esac
+}

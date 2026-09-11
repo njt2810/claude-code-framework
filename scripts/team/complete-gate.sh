@@ -67,6 +67,21 @@
 #      out below and in check 6 itself: when there is no version control, no
 #      code identity exists to compare, and this check reports that it could
 #      NOT verify staleness rather than reporting a pass.
+#   7. (Part 2.4) If the task was REOPENED by `task-state.sh regress`, its
+#      evidence array must have GROWN since the reopening -- a regressed task
+#      may not re-complete on the evidence that was accepted before the
+#      regression was found. Skipped entirely for a task that has never been
+#      reopened (no `evidence_floor` key), which is every task predating
+#      Part 2.4.
+#   8. (Part 2.4) If the task DECLARES owned paths (`owns`, set by
+#      `create --owns` / `declare-ownership`), every file actually changed
+#      must fall inside that declaration. The changed-file set is derived
+#      independently from git -- never from the evidence's own artifacts[],
+#      which is written by the very builder whose scope is being checked.
+#      Skipped entirely for a task that declares nothing, which is every task
+#      predating Part 2.4. **This is the item deferred since Part 1.3**: its
+#      acceptance text called for an out-of-scope file-change check, and its
+#      status line disclosed that no script performed one.
 #
 # Only if every check passes does this script call `task-state.sh complete
 # <task-id>` as its own final step -- always with
@@ -735,6 +750,256 @@ elif [ "$RECORDED_SNAPSHOT" != "$CURRENT_SNAPSHOT" ]; then
   gate_fail 6 "evidence is stale — recorded against snapshot $RECORDED_SNAPSHOT, current snapshot is $CURRENT_SNAPSHOT; code changed since verification, re-run checks."
 fi
 
+# ---- Check 7 (Part 2.4): a REOPENED task must have evidence recorded SINCE
+#      it was reopened. ----
+#
+# `task-state.sh regress` moves a `done` task back to `building` and records
+# `evidence_floor`: the length of its evidence array at the instant it was
+# reopened. That old evidence describes the behaviour that has since been found
+# broken, so it cannot also be the evidence that the break is fixed. Every
+# check above would happily accept it -- the artifacts still exist, the exit
+# code is still 0, and if the regression was found without a code change the
+# snapshot still matches, so even check 6 passes. Nothing before this check can
+# tell "verified" from "verified before we learned it was wrong".
+#
+# task-state.sh's own `complete` enforces the same floor, deliberately and
+# independently (see its comment): the gate is the sanctioned path but
+# `complete` stays directly callable, so a guard only the gate enforced would
+# leave `complete` itself as the bypass. Enforcing it HERE too is what lets the
+# gate report the real reason rather than pass its own checks and then relay a
+# refusal from a script it invoked -- which is what happened before this check
+# existed, printing GATE PASS immediately above a refusal.
+#
+# ABSENT-CASE, and it is what keeps the whole feature optional: no
+# `evidence_floor` key at all means this task has never been reopened -- every
+# task that predates Part 2.4, and every task that has simply never regressed
+# -- and this check is then skipped entirely, exactly as if it did not exist.
+# A key that is PRESENT but not a non-negative integer is corruption and
+# REFUSES, like every other evidence read in this script.
+FLOOR_SHAPE=$(echo "$STATUS_OUT" | jq -r '
+  if type != "object" then "shape"
+  elif (has("evidence_floor") | not) then "absent"
+  else .evidence_floor as $v
+    | if ($v | type) == "number" and $v >= 0 and $v == ($v | floor)
+      then "ok:" + ($v | tostring)
+      else "bad:" + ($v | tojson | .[0:200])
+      end
+  end
+' 2>/dev/null)
+FLOOR_SHAPE="${FLOOR_SHAPE%$'\r'}"
+case "$FLOOR_SHAPE" in
+  absent) ;;
+  ok:*)
+    EVIDENCE_FLOOR="${FLOOR_SHAPE#ok:}"
+    case "$EVIDENCE_FLOOR" in
+      ''|*[!0-9]*)
+        evidence_field_fail 7 "evidence_floor" "a plain non-negative integer" \
+          "$EVIDENCE_FLOOR — numeric in the state file, but it does not render as a plain run of digits"
+        ;;
+    esac
+    # EVIDENCE_COUNT is check 2's own validated count of this task's evidence
+    # array, so this comparison is on two values that have each been through a
+    # guard -- no bare `jq -r` reaches this `-le`.
+    if [ "$EVIDENCE_COUNT" -le "$EVIDENCE_FLOOR" ]; then
+      gate_fail 7 "task '$TASK_ID' was REOPENED after a regression and has recorded no evidence since.
+  evidence records when it was reopened: $EVIDENCE_FLOOR
+  evidence records now:                  $EVIDENCE_COUNT
+  The evidence in this record is the evidence that was accepted BEFORE the regression was found, so it cannot also be the evidence that the regression is fixed — and every check above would accept it, because the artifacts still exist and the snapshot may well still match. Repair the regression, record fresh evidence ('task-state.sh record-evidence $TASK_ID ...'), then re-run this gate.
+  Run 'task-state.sh status $TASK_ID' to read the regressions array for what regressed, when, and what detected it."
+    fi
+    ;;
+  shape) evidence_field_fail 7 "evidence_floor" "a plain non-negative integer" "the task record is not a JSON object" ;;
+  bad:*) evidence_field_fail 7 "evidence_floor" "a plain non-negative integer recorded when this task was reopened" "${FLOOR_SHAPE#bad:}" ;;
+  *)     evidence_field_fail 7 "evidence_floor" "a plain non-negative integer recorded when this task was reopened" "unreadable — the task record could not be parsed as JSON" ;;
+esac
+
+# ---- Check 8 (Part 2.4): the changed files fall inside the task's DECLARED
+#      OWNERSHIP. ----
+#
+# THIS IS THE ITEM DEFERRED SINCE PART 1.3, now closed. Part 1.3's acceptance
+# text says a builder's out-of-scope write should be "independently caught by
+# the completion-gate script's file-change check", and its own status line
+# disclosed that no such check existed: `task-state.sh create` had no
+# --allowed-scope field, this gate's checks were all about evidence QUALITY,
+# and "a builder touched something outside its assigned scope" was enforced
+# only by the builder complying with the prose in agents/team-builder.md. That
+# is the one restriction agents/team-builder.md itself says is not enforced by
+# anything but the agent's own good behaviour. It is enforced here now.
+#
+# WHAT SIGNAL THIS USES, AND WHY IT IS NOT artifacts[]. The obvious candidate
+# is the evidence record's own `artifacts[]` list -- it is already there, it is
+# already validated, and it names files. It is also written by the builder
+# whose scope is being policed, which makes it worthless for this purpose: a
+# builder that edited a file outside its scope simply does not list it, and the
+# check passes having confirmed the honesty of a self-report. That is the exact
+# failure mode this whole script exists to refuse (see its header: the Part 1.1
+# incident was a claimed artifact that did not exist). So the changed-file set
+# is derived from GIT, independently, the same way check 3 opens the real files
+# and check 6 recomputes the real snapshot:
+#   - tracked changes still in the working tree:  git diff --name-only HEAD
+#   - files added but not yet tracked:            git ls-files --others
+#                                                   --exclude-standard
+#   - and, when the evidence was recorded against an EARLIER base commit than
+#     HEAD, everything committed since:           git diff --name-only BASE HEAD
+# The base commit comes from the evidence's own recorded code_snapshot, which
+# compute_snapshot writes as either a bare short SHA (clean tree) or
+# "uncommitted, base SHA <sha>, diff <hash>" (dirty tree). Taking the base from
+# the evidence rather than from an argument is the same discipline
+# record-approval uses for its target revision: the value that decides the
+# check is computed from the record, not supplied by the thing being checked.
+#
+# .claude/state/ IS EXCLUDED, deliberately. task-state.sh's own bookkeeping
+# writes to .claude/state/team-tasks.json are not the builder's change -- they
+# are this subsystem writing its own records, including the very evidence write
+# that led to this gate run. Charging them to the builder's scope would fail
+# every scoped task that ever recorded anything. (In a repo that gitignores
+# .claude/state/, as this one does and as warn_if_state_not_gitignored asks for,
+# they never appear in the first place; the explicit exclusion covers the repo
+# that does not.)
+#
+# OPTIONAL, AND THAT IS LOAD-BEARING: a task with no `owns` key, a null one, or
+# an empty array declares nothing, and this check is skipped ENTIRELY -- no
+# output, no git call, no verdict. Every task that predates Part 2.4 gates
+# exactly as it did before.
+#
+# BUT A DECLARATION THAT CANNOT BE ENFORCED IS REFUSED, and this is the one
+# place this script deliberately does NOT follow check 6's "warn and pass"
+# precedent. Check 6 passes without staleness verification outside a git
+# repository because a project without version control is legitimate and must
+# still be able to complete work at all. Here the situation is different: a
+# declared scope is an OPT-IN request for this check, so "we could not run the
+# check you asked for" is not a degradation forced on an innocent project --
+# it is a task asking for enforcement in a place where enforcement is
+# impossible. Passing it would record a scope check that never happened against
+# a task that explicitly asked for one. It refuses, and the message says
+# exactly how to proceed (drop the declaration, or use version control).
+OWNS_SHAPE=$(echo "$STATUS_OUT" | jq -r '
+  if type != "object" then "shape"
+  elif (has("owns") | not) or (.owns == null) then "none"
+  elif (.owns | type) != "array" then "bad:not a JSON array — " + (.owns | tojson | .[0:200])
+  elif ([.owns[] | select((type != "string") or (length == 0))] | length) > 0
+    then "bad:the array holds entries that are not non-empty path strings — " + ([.owns[] | select((type != "string") or (length == 0))] | tojson | .[0:200])
+  elif (.owns | length) == 0 then "none"
+  else "ok"
+  end
+' 2>/dev/null)
+OWNS_SHAPE="${OWNS_SHAPE%$'\r'}"
+case "$OWNS_SHAPE" in
+  none|ok) ;;
+  shape) evidence_field_fail 8 "owns" "an array of non-empty path strings (or no such key at all, on a task that declares no scope)" "the task record is not a JSON object" ;;
+  bad:*) evidence_field_fail 8 "owns" "an array of non-empty path strings (or no such key at all, on a task that declares no scope)" "${OWNS_SHAPE#bad:}" ;;
+  *)     evidence_field_fail 8 "owns" "an array of non-empty path strings (or no such key at all, on a task that declares no scope)" "unreadable — the task record could not be parsed as JSON" ;;
+esac
+
+if [ "$OWNS_SHAPE" = "ok" ]; then
+  OWNS_JSON=$(echo "$STATUS_OUT" | jq -c '.owns')
+
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    gate_fail 8 "task '$TASK_ID' declares owned paths, but this directory is not a git repository, so the set of files actually changed cannot be established and the declared scope CANNOT BE ENFORCED.
+  This is deliberately NOT treated the way check 6 treats a missing repository. Check 6 passes without staleness verification because a project with no version control is legitimate and must still be able to complete work. A declared scope is different: it is an explicit request for THIS check, so passing it here would record a scope check that never ran against a task that asked for one.
+  Either remove the declaration (a task with no 'owns' is not scope-checked at all, exactly as before Part 2.4), or run this project under version control."
+  fi
+
+  # The base commit the evidence was recorded against, taken from the evidence's
+  # OWN code_snapshot (already read and validated by check 6 into
+  # RECORDED_SNAPSHOT). compute_snapshot writes exactly two shapes, and the
+  # placeholder; anything else means the field was written by something other
+  # than compute_snapshot and is refused rather than guessed at.
+  case "$RECORDED_SNAPSHOT" in
+    "$NO_GIT_SNAPSHOT")
+      gate_fail 8 "task '$TASK_ID' declares owned paths, but its evidence was recorded outside a git repository (code_snapshot is the placeholder '$NO_GIT_SNAPSHOT'), so there is no base commit to compute the changed-file set against and the declared scope CANNOT BE ENFORCED.
+  See check 8's note in this file for why an unenforceable declaration refuses rather than passing with a warning. Either remove the declaration, or re-record the evidence inside a git repository."
+      ;;
+    "uncommitted, base SHA "*)
+      SCOPE_BASE="${RECORDED_SNAPSHOT#uncommitted, base SHA }"
+      SCOPE_BASE="${SCOPE_BASE%%,*}"
+      ;;
+    *)
+      SCOPE_BASE="$RECORDED_SNAPSHOT"
+      ;;
+  esac
+  case "$SCOPE_BASE" in
+    ''|*[!0-9a-fA-F]*)
+      evidence_field_fail 8 "code_snapshot" "a snapshot naming a base commit, i.e. either a bare short SHA or \"uncommitted, base SHA <sha>, diff <hash>\" — the only two shapes compute_snapshot writes" \
+        "a base of '$SCOPE_BASE', parsed out of the recorded snapshot '$RECORDED_SNAPSHOT'"
+      ;;
+  esac
+  if ! git cat-file -e "${SCOPE_BASE}^{commit}" 2>/dev/null; then
+    gate_fail 8 "task '$TASK_ID' declares owned paths, but the base commit its evidence was recorded against ($SCOPE_BASE) does not exist in this repository, so the set of files changed since then cannot be computed and the declared scope CANNOT BE ENFORCED.
+  The evidence was recorded against a history this checkout does not have — a different clone, a force-push, or a rewritten branch. Re-record the evidence against this repository, or remove the declaration."
+  fi
+
+  # The changed-file set, collected NUL-separated so paths with spaces or
+  # unusual characters survive. `git status --porcelain` is deliberately NOT
+  # used: its output quotes and escapes unusual paths and encodes renames as
+  # "old -> new", all of which would have to be un-parsed here. These three
+  # plumbing reads need no parsing at all.
+  CHANGED=()
+  while IFS= read -r -d '' _p; do
+    case "$_p" in
+      .claude/state/*) continue ;;
+    esac
+    CHANGED+=("$_p")
+  done < <(
+    {
+      git diff --name-only -z HEAD 2>/dev/null
+      git ls-files --others --exclude-standard -z 2>/dev/null
+      SCOPE_HEAD=$(git rev-parse HEAD 2>/dev/null || echo "")
+      SCOPE_BASE_FULL=$(git rev-parse "${SCOPE_BASE}^{commit}" 2>/dev/null || echo "")
+      if [ -n "$SCOPE_HEAD" ] && [ -n "$SCOPE_BASE_FULL" ] && [ "$SCOPE_HEAD" != "$SCOPE_BASE_FULL" ]; then
+        git diff --name-only -z "$SCOPE_BASE_FULL" "$SCOPE_HEAD" 2>/dev/null
+      fi
+    }
+  )
+
+  if [ "${#CHANGED[@]}" -gt 0 ]; then
+    # Matching is done in jq, with the same glob vocabulary task-state-lib.sh
+    # uses for check-overlap -- duplicated here rather than sourced for the same
+    # reason compute_snapshot is duplicated: these are independent CLI entry
+    # points. `*` and `?` are the only metacharacters and `*` crosses "/", so
+    # "scripts/team/*" owns "scripts/team/task-state.sh"; matching is
+    # case-sensitive; every other character is literal.
+    #
+    # Note the `$o | glob_regex` rather than a bare `glob_regex` inside test():
+    # a `|` rebinds `.`, so `test(glob_regex)` would compile the regex from the
+    # PATH being tested rather than from the pattern. Bound explicitly here for
+    # exactly that reason.
+    OUT_OF_SCOPE=()
+    while IFS= read -r _line; do
+      _line="${_line%$'\r'}"
+      [ -n "$_line" ] || continue
+      OUT_OF_SCOPE+=("$_line")
+    done < <(jq -rn --argjson owns "$OWNS_JSON" --args '
+      def glob_regex:
+        "^" + ((. / "") | map(
+            . as $c
+            | if $c == "*" then ".*"
+              elif $c == "?" then "."
+              elif (("\\.[]{}()+^$|" | index($c)) != null) then "\\" + $c
+              else $c end) | join("")) + "$";
+      $ARGS.positional
+      | unique
+      | .[]
+      | . as $p
+      | select(([ $owns[] as $o | select($p | test($o | glob_regex)) ] | length) == 0)
+    ' "${CHANGED[@]}")
+
+    if [ "${#OUT_OF_SCOPE[@]}" -gt 0 ]; then
+      SCOPE_MSG="task '$TASK_ID' changed file(s) OUTSIDE its declared ownership:"
+      for _p in "${OUT_OF_SCOPE[@]}"; do
+        SCOPE_MSG="$SCOPE_MSG
+  outside declared scope: $_p"
+      done
+      SCOPE_MSG="$SCOPE_MSG
+  declared scope: $(echo "$OWNS_JSON" | jq -r 'map("\"" + . + "\"") | join(", ")')
+  base commit the evidence was recorded against: $SCOPE_BASE
+  This set was derived from git (working-tree changes, untracked files, and anything committed since that base), NOT from the evidence's own artifacts[] list -- a self-declared list is written by the same builder whose scope is being checked, so a file left off it would pass a check that had verified nothing. If these changes are legitimate, say so in the record rather than around it: widen the declaration deliberately with 'task-state.sh declare-ownership $TASK_ID --owns \"...\"' (which is refused from 'checking' precisely so a scope cannot be widened at gate time, and which keeps the previous set in the task's ownership_declarations array), or raise a decision card."
+      gate_fail 8 "$SCOPE_MSG"
+    fi
+  fi
+  echo "CHECK 8: ${#CHANGED[@]} changed file(s) all fall inside task '$TASK_ID''s declared ownership ($(echo "$OWNS_JSON" | jq -r 'length') pattern(s))."
+fi
+
 # ---- All checks passed. This is the only place in this script that calls
 #      `task-state.sh complete`. See the header's "Disclosed residual race"
 #      section for the gap between the checks above and this call. ----
@@ -747,7 +1012,7 @@ RECORDED_AT=$(echo "$LATEST" | jq -r '.recorded_at')
 if [ "$STALENESS_VERIFIED" = "yes" ]; then
   echo "GATE PASS: task '$TASK_ID' — evidence recorded at $RECORDED_AT accepted (snapshot: $CURRENT_SNAPSHOT)"
 else
-  echo "GATE PASS (WITHOUT STALENESS VERIFICATION): task '$TASK_ID' — evidence recorded at $RECORDED_AT accepted on checks 1-5, but check 6 could NOT verify that the code is unchanged since then, because this project is not under version control. No snapshot comparison happened. Recording staleness_verified: false."
+  echo "GATE PASS (WITHOUT STALENESS VERIFICATION): task '$TASK_ID' — evidence recorded at $RECORDED_AT accepted on every other check, but check 6 could NOT verify that the code is unchanged since then, because this project is not under version control. No snapshot comparison happened. Recording staleness_verified: false."
 fi
 
 # The verdict travels to the state file, not just to stdout -- see this file's

@@ -17,6 +17,7 @@
 # Usage:
 #   task-state.sh create <id> <title> [--depends id1,id2,...] [--builder name]
 #                 [--verifier name] [--skills a,b] [--risk low|medium|high] [--budget N]
+#                 [--owns path/glob,path/glob,...]
 #   task-state.sh start <id>
 #   task-state.sh check <id>
 #   task-state.sh complete <id> [--staleness-verified yes|no]
@@ -51,6 +52,11 @@
 #   task-state.sh record-evidence <id> --command "<cmd>" --exit-code N
 #                 --tests-total N --tests-skipped N --output-file <path>
 #                 [--artifact <path>]... [--cwd <path>]
+#   task-state.sh declare-ownership <id> --owns "path/glob,path/glob,..."
+#   task-state.sh check-overlap <id>
+#   task-state.sh check-combined <id> <id> [<id>...]
+#   task-state.sh regress <id> --reason "<what regressed>"
+#                 --detected-by "<what surfaced it>"
 #   task-state.sh status <id>
 #   task-state.sh list
 #
@@ -535,6 +541,238 @@
 #     either way, while check-approval exists solely to answer "may I?", and the
 #     honest answer to "may I?" when you cannot tell is no.)
 #
+# Integration and overlap checks (Part 2.4) implement three separate clauses
+# of DESIGN.md that all concern parts interacting rather than a part on its
+# own:
+#
+#   "Set file ownership and isolated workspaces where needed."
+#   "Verify combined changes before release."
+#   "Check integration as parts land ... Later regressions reopen affected
+#    work."
+#
+# --- A. DECLARED FILE OWNERSHIP, AND OVERLAP -------------------------------
+#
+# A task may DECLARE the repository paths it owns, as shell-style globs:
+#   create <id> <title> --owns "scripts/team/*,tests/task-state-smoke.sh"
+#   declare-ownership <id> --owns "scripts/team/*,tests/*"
+#
+# BOTH SPELLINGS EXIST DELIBERATELY, and the reason is the workflow rather
+# than symmetry. A lead plans parts before dispatching anyone, and an overlap
+# has to be catchable BEFORE two builders start -- which needs the declaration
+# to exist at `create` time. But a part's real scope is often only settled once
+# its plan firms up, after creation, so a declaration that could only be made
+# at `create` would be made too early to be accurate, and an inaccurate
+# declaration is worse than none: it makes the gate's scope check (check 8)
+# refuse honest work and teaches callers to stop declaring.
+#
+# `declare-ownership` REPLACES the set and is allowed ONLY from `planned` or
+# `building`. The state restriction is the anti-evasion rule and it is the one
+# thing about this subcommand that matters: `checking` is the state
+# complete-gate.sh gates from, and its scope check reads this very field, so a
+# task that could re-declare from `checking` could widen its scope to fit
+# whatever it actually touched at the exact moment that scope was about to be
+# read. Refused there, by name, with the honest route given (`fail` or
+# `record-decision`, either of which returns the task to a state where a
+# re-declaration is a visible act rather than a quiet one). `done` is refused
+# too: a completed task's declaration is part of the record of what it was
+# allowed to change.
+#
+# BE PRECISE ABOUT WHAT THIS PREVENTS AND WHAT IT ONLY RECORDS. A builder
+# working in `building` can still widen its own declaration. What it cannot do
+# is widen it invisibly: every declaration appends to the task's own
+# `ownership_declarations` array carrying the new set, the PREVIOUS set, when,
+# and which subcommand did it. The enforcement here is auditability, not
+# prevention, and saying so is the point -- claiming prevention would be
+# claiming a check that is not performed, which is this subsystem's whole
+# defect class.
+#
+#   check-overlap <id>
+#     READ-ONLY (takes no lock, never writes -- same reasoning as
+#     check-external-action and check-approval). It answers ONE question --
+#     "does any OTHER task that is still active declare a path that overlaps
+#     this task's declaration?" -- and it answers it with its EXIT STATUS:
+#       EXIT 0 => NO CONFLICT FOUND => proceed.
+#       EXIT 1 => CONFLICT: an active other task declares an overlapping path.
+#       EXIT 2 => BAD USAGE => UNDETERMINED, do NOT proceed.
+#       EXIT 3 => the task does not exist, or a record could not be read =>
+#                 UNDETERMINED, do NOT proceed.
+#       EXIT 4 => UNDETERMINED: this task declares NO owned paths, so no
+#                 overlap could be computed. This is NOT "no conflict".
+#
+#     *** NONZERO NEVER MEANS "NO CONFLICT". *** Every nonzero code above means
+#     "do not dispatch concurrent work on these files on the strength of this
+#     answer". There is no input -- absent, corrupt, unreadable, or merely
+#     undeclared -- that this subcommand turns into a green light; the only
+#     verdict producing exit 0 is a real declaration that was really compared
+#     against every active task's. Same discipline, same reason, as
+#     check-external-action's "NONZERO NEVER MEANS ALREADY DONE" and
+#     check-approval's "NONZERO NEVER MEANS APPROVED": a caller branching on
+#     exit status is the natural shell idiom, and an exit-code contract that
+#     reads the wrong way round in one edge case is how a safety mechanism
+#     becomes the cause of the thing it was built to stop.
+#
+#     EXIT 4 IS THE ONE THAT LOOKS LIKE PEDANTRY AND IS NOT. A task with no
+#     declaration genuinely has no declared overlap, so "0, no conflict" is
+#     tempting. It is also the exact shape of every defect this file documents:
+#     an absent input becoming a value that means "the condition is satisfied".
+#     A task that declares nothing is not a task that conflicts with nothing --
+#     it is a task nobody can answer the question about.
+#
+#     "ACTIVE" MEANS "NOT `done`", deliberately broadly. A blocked, paused,
+#     awaiting-decision or needs-reassessment task has not given its files
+#     back; it is coming back to them. Only `done` releases a declaration.
+#
+#     THREE DISCLOSED LIMITS, so nothing here is overclaimed:
+#       1. Pattern overlap is decided by two rules (containment, and a shared
+#          literal prefix when both patterns carry a wildcard) rather than by a
+#          real glob-intersection. The rules never MISS an overlap -- see the
+#          case-by-case argument above OWNERSHIP_JQ_DEFS in task-state-lib.sh
+#          -- but they can REPORT one that cannot happen ("src/*/a.js" vs
+#          "src/*/b.js"). That direction is chosen: a false conflict costs a
+#          conversation, a missed one costs two builders editing one file.
+#       2. A task that declares NOTHING contributes no patterns and therefore
+#          cannot be detected as a conflict by anyone. Exit 0 means "no
+#          DECLARED overlap", never "nobody else is editing these files".
+#       3. ONE CORRUPT TASK RECORD REFUSES EVERY OVERLAP CHECK IN THE PROJECT
+#          (exit 3), not just that task's own: every task's `state` must be
+#          readable before any of them can be classified active-or-done. Same
+#          fail-closed whole-array validation `approvals` and
+#          `external_actions` already use.
+#
+#   COMPLETE-GATE.SH CHECK 8 is the other half of ownership, and it is the item
+#   DEFERRED SINCE PART 1.3. That part's acceptance text called for an
+#   out-of-scope file-change check and its status line disclosed that no script
+#   performed one -- `create` had no scope field, and the gate's checks were all
+#   about evidence quality. Check 8 now refuses completion when a task with a
+#   declaration changed files outside it, deriving the changed-file set FROM GIT
+#   (working-tree changes, untracked files, and anything committed since the
+#   base commit named in the evidence's own code_snapshot) rather than from the
+#   evidence's `artifacts[]`, which is written by the very builder being
+#   checked. See complete-gate.sh's check 8 for the full reasoning, including
+#   why a declared scope that cannot be enforced REFUSES rather than passing
+#   with a warning the way check 6 does.
+#
+#   OWNERSHIP IS OPTIONAL, EVERYWHERE. A task with no `owns` key, a null one,
+#   or an empty array declares nothing; `create` without --owns produces one;
+#   every task that predates this part is one. Check 8 is then skipped
+#   entirely, and no other subcommand's behaviour changes at all.
+#
+# --- B. COMBINED-CHANGE VERIFICATION ---------------------------------------
+#
+#   check-combined <id> <id> [<id>...]
+#     READ-ONLY (no lock, never writes). "Verify combined changes before
+#     release", reduced to the one thing that can actually be checked here
+#     without inventing a release system: EACH PART'S COMPLETION WAS TRUE AT A
+#     DIFFERENT MOMENT, and a set of parts can be a set of individually-true
+#     statements about trees that no longer exist. Part A passes its gate; part
+#     B then lands and changes the same tree; A's completion is now about code
+#     that is gone. Every gate saw a true thing, and the combination was never
+#     checked by anyone.
+#
+#     So: every named task must be `done`, must have evidence, and its LATEST
+#     evidence's code_snapshot must equal the snapshot computed live, right
+#     now. Exit status:
+#       EXIT 0 => COMBINED-CURRENT: every part's evidence is current against
+#                 the code as it stands now.
+#       EXIT 1 => NOT CURRENT: at least one part's evidence predates the
+#                 current code => re-verify that part before releasing.
+#       EXIT 2 => BAD USAGE => UNDETERMINED, do NOT proceed.
+#       EXIT 3 => UNDETERMINED: a named task does not exist, has no evidence at
+#                 all, or its record could not be read.
+#       EXIT 4 => UNDETERMINED: a named task is not `done`.
+#       EXIT 5 => UNDETERMINED: no version control, so no snapshot on either
+#                 side is a code identity and nothing could be compared.
+#     *** NONZERO NEVER MEANS "THE COMBINATION IS VERIFIED". ***
+#
+#     AT LEAST TWO IDS ARE REQUIRED, and a repeated id is refused rather than
+#     deduped. "Verify combined changes" is a question about a COMBINATION;
+#     asked of one task it is that task's own gate check, already done, and
+#     answering it would let a caller believe a combination had been checked
+#     when only a part had. A repeated id means the caller's list of parts is
+#     wrong, and quietly deduping it would report more parts verified than were
+#     named.
+#
+#     WHAT IT DOES NOT DO, stated rather than left to be assumed: it does not
+#     re-run anyone's tests, re-open anyone's artifacts, or judge whether the
+#     parts are correct TOGETHER in any richer sense. It says the per-part
+#     verdicts have not gone out of date underneath the release. Exit 0 says
+#     exactly that and no more.
+#
+#     The report names, for each stale part, the parts in the set whose
+#     evidence is NEWER -- "its evidence predates the evidence recorded for: B,
+#     C" -- which is DESIGN.md's "reports any whose evidence predates another's
+#     changes". That ordering comes from `recorded_at` timestamps and is
+#     DISPLAY ONLY: local clock readings can carry different UTC offsets, so a
+#     string comparison between two of them is not sound enough to gate
+#     anything. The VERDICT comes solely from the snapshot comparison, which is
+#     a content identity. Do not promote the timestamp comparison into it.
+#
+# --- C. A LATER REGRESSION REOPENS AFFECTED WORK ---------------------------
+#
+#   regress <id> --reason "<what regressed>" --detected-by "<what surfaced it>"
+#     Allowed ONLY from `done` -- a regression is the discovery that COMPLETED
+#     work no longer holds, and a task that is not complete has nothing to
+#     reopen. Moves the task to `building`, records
+#     {reason, detected_by, regressed_at, code_snapshot, evidence_at_regression,
+#     regressed_from} in the task's own `regressions` array, and sets
+#     `evidence_floor`. Both flags are REQUIRED and non-blank: un-saying a
+#     verdict this subsystem already recorded, without saying what regressed or
+#     what surfaced it, is the "conceal failures" pattern DESIGN.md forbids
+#     pointed the other way -- finished work quietly reopened, or a completion
+#     quietly disowned, with nothing in the record to review.
+#
+#     WHY THE DESTINATION IS `building`, decided rather than defaulted into:
+#       - NOT `checking`. That is the state complete-gate.sh gates from, so a
+#         reopened task would sit one command away from `done` with an evidence
+#         array whose newest entry is the pre-regression one.
+#       - NOT a new `regressed` state. A new state would need its own exits,
+#         its own refusal in eight subcommands, and its own line in every
+#         enumeration -- and would buy nothing over `building`, because what
+#         forces re-verification is the evidence floor below, not the name of
+#         the state. A state whose only content is "this is `building`, but we
+#         feel worse about it" is the kind of mechanism that rots.
+#       - `building` is where `reassess` already restores a task that must be
+#         worked again, and the route back to `done` from it is
+#         `check` -> complete-gate.sh, which is exactly the route required.
+#
+#     THE EVIDENCE FLOOR IS WHAT ACTUALLY FORCES FRESH VERIFICATION, and the
+#     state alone would not have. Consider a regression found WITHOUT any code
+#     change (a test that was always wrong, a report from production against
+#     the same commit): the old evidence's artifacts still exist, its exit code
+#     is still 0, its test totals are still non-zero, and its code_snapshot
+#     STILL MATCHES the live one -- so checks 3, 4, 5 and 6 all pass on it.
+#     Nothing in the gate could tell "verified" from "verified before we
+#     learned it was wrong". `evidence_floor` records the LENGTH of the evidence
+#     array at the moment of reopening, and completion requires the array to
+#     have GROWN past it. Because `evidence` is append-only and both `complete`
+#     and the gate read `evidence[-1]`, a longer array means the entry being
+#     judged is a post-regression one. A count rather than a timestamp for the
+#     same reason the report above is display-only: no clock arithmetic is
+#     needed or wanted in a guard.
+#
+#     ENFORCED IN BOTH PLACES, DELIBERATELY: complete-gate.sh check 7 AND
+#     `task-state.sh complete` itself. The gate is the sanctioned path, but
+#     `complete` stays directly callable (this script has no knowledge of the
+#     gate and says so at the top), so a floor that only the gate enforced would
+#     leave `complete` as the bypass -- and Part 2.4's requirement is that a
+#     regressed task cannot return to `done` except through the gate with fresh
+#     evidence. The gate additionally judges whether that fresh evidence is any
+#     good.
+#
+#     `evidence_floor` NEVER DECREASES. A second regression recomputes it from
+#     the evidence array, which only grows; a computed floor BELOW a stored one
+#     means the record was edited, and writing it would replace a stronger
+#     completion guard with a weaker one -- the "never learn to remove checks"
+#     move arrived at by corruption rather than by design. Refused, by name.
+#
+#     AFFECTED PARTS ARE REPORTED, NOT REOPENED. `regress` names the completed
+#     tasks that declared a dependency on this one and says they may be
+#     affected. It does NOT reopen them: nothing here has verified that any of
+#     them actually regressed, and reopening a part whose own evidence is
+#     perfectly current would assert a finding no one made -- the same
+#     dishonesty as claiming a check that could not run, pointed the other way.
+#     The decision is left to someone who can actually look.
+#
 # States: planned -> building -> checking -> done
 #         (any of planned/building/checking) -> blocked -> (restored state)
 #         (any of planned/building/checking) -> paused  -> (restored state)
@@ -545,12 +783,18 @@
 #         needs-reassessment --reassess--> building|checking  (the ONLY exit)
 #         awaiting-decision --record-approval|record-rejection--> (restored
 #                                                     state; the ONLY exits)
+#         done --regress--> building     (a later regression reopens completed
+#                                         work; the ONLY transition out of
+#                                         `done`, and it sets an evidence floor
+#                                         the old evidence cannot satisfy)
 #
 # Exit codes: 0 ok
 #             1 invalid transition / not found / duplicate id / unmet dependency
 #               / a refused repair attempt (unchanged hypothesis)
 #               (also: check-external-action's "key NOT recorded, PROCEED")
 #               (also: check-approval's "no approval recorded at all")
+#               (also: check-overlap's "CONFLICT")
+#               (also: check-combined's "NOT CURRENT")
 #             2 bad usage / missing jq dependency
 #             3 check-external-action ONLY: the task does not exist, so
 #               "already recorded?" could not be determined -- do NOT proceed
@@ -559,6 +803,17 @@
 #             4/5/6/7 check-approval ONLY: scope not covered / revision changed
 #               / deployment impact not covered / revision undeterminable --
 #               all four mean do NOT proceed
+#             3 check-overlap ONLY: task not found / record unreadable
+#             4 check-overlap ONLY: this task declares no owned paths, so no
+#               overlap could be computed -- NOT "no conflict"
+#             3 check-combined ONLY: a named task is missing, has no evidence,
+#               or its record is unreadable
+#             4 check-combined ONLY: a named task is not `done`
+#             5 check-combined ONLY: no version control, so currency could not
+#               be established
+#             Both check-overlap and check-combined follow the same rule as
+#             check-approval and check-external-action: NONZERO NEVER MEANS THE
+#             REASSURING ANSWER.
 #
 # Every transition is atomic: written to a temp file in the same directory as
 # the state file, then mv'd into place — no command can leave the state file
@@ -569,7 +824,8 @@
 #
 # Every mutating command (create/start/check/complete/fail/reassess/block/
 # unblock/pause/resume/record-assignment/record-evidence/
-# record-external-action/record-decision/record-approval/record-rejection) also
+# record-external-action/record-decision/record-approval/record-rejection/
+# declare-ownership/regress) also
 # holds an exclusive lock across its ENTIRE read-modify-write sequence — not
 # just the final atomic_update write — so concurrent invocations (e.g. a lead
 # plus several builder/verifier subagents all touching the same project's
@@ -642,8 +898,19 @@ CMD="${1:-}"
 # answers against the state as of an instant slightly before or after a
 # concurrent record-approval -- and both of those are states this answer was
 # legitimately true for.
+# `check-overlap` and `check-combined` (Part 2.4) are absent from this list for
+# exactly the same two reasons, restated rather than left to be inferred:
+# neither ever calls atomic_update, and both are probes a caller is expected to
+# run BEFORE acting -- check-overlap before dispatching a builder, check-combined
+# before releasing a set of finished parts. Making a read-only "may I?" probe
+# contend for the project-wide lock would turn it into a source of delay and
+# give callers a reason to skip it. Both read the state file without a lock,
+# which is safe because atomic_update replaces that file by rename: a concurrent
+# write is never half-visible, so the worst case is an answer computed against
+# the state as of an instant slightly before or after a concurrent write, and
+# both of those are states the answer was legitimately true for.
 case "$CMD" in
-  create|start|check|complete|fail|reassess|block|unblock|pause|resume|record-assignment|record-evidence|record-external-action|record-decision|record-approval|record-rejection) acquire_lock ;;
+  create|start|check|complete|fail|reassess|block|unblock|pause|resume|record-assignment|record-evidence|record-external-action|record-decision|record-approval|record-rejection|declare-ownership|regress) acquire_lock ;;
 esac
 
 case "$CMD" in
@@ -651,14 +918,15 @@ case "$CMD" in
   create)
     ID="${2:-}"; TITLE="${3:-}"
     if [ -z "$ID" ] || [ -z "$TITLE" ]; then
-      echo "Usage: task-state.sh create <id> <title> [--depends id1,id2,...] [--builder name] [--verifier name] [--skills a,b] [--risk low|medium|high] [--budget N]" >&2
+      echo "Usage: task-state.sh create <id> <title> [--depends id1,id2,...] [--builder name] [--verifier name] [--skills a,b] [--risk low|medium|high] [--budget N] [--owns path/glob,path/glob,...]" >&2
       exit 2
     fi
     if [ $# -ge 3 ]; then shift 3; else shift $#; fi
 
-    DEPENDS=""; BUILDER=""; VERIFIER=""; SKILLS=""; RISK="medium"; BUDGET=2
+    DEPENDS=""; BUILDER=""; VERIFIER=""; SKILLS=""; RISK="medium"; BUDGET=2; OWNS=""
     while [ $# -gt 0 ]; do
       case "$1" in
+        --owns) [ $# -ge 2 ] || { echo "ERROR: --owns requires a value" >&2; exit 2; }; OWNS="$2"; shift 2 ;;
         --depends) [ $# -ge 2 ] || { echo "ERROR: --depends requires a value" >&2; exit 2; }; DEPENDS="$2"; shift 2 ;;
         --builder) [ $# -ge 2 ] || { echo "ERROR: --builder requires a value" >&2; exit 2; }; BUILDER="$2"; shift 2 ;;
         --verifier) [ $# -ge 2 ] || { echo "ERROR: --verifier requires a value" >&2; exit 2; }; VERIFIER="$2"; shift 2 ;;
@@ -681,6 +949,17 @@ case "$CMD" in
     case "$BUDGET" in
       ''|*[!0-9]*) echo "ERROR: --budget must be a non-negative integer (got: $BUDGET)" >&2; exit 2 ;;
     esac
+
+    # Part 2.4. OPTIONAL: omit --owns entirely and the task declares nothing,
+    # which is exactly what every task created before this flag existed has, and
+    # which every other subcommand and complete-gate.sh treat as "no scope check
+    # applies". Validated here, before any state read and before any write, so a
+    # bad pattern cannot leave a half-created task behind.
+    OWNS_JSON='[]'
+    if [ -n "$OWNS" ]; then
+      normalise_owned_paths "$OWNS"
+      OWNS_JSON="$OWNED_PATHS_JSON"
+    fi
 
     ensure_state_file
 
@@ -716,7 +995,8 @@ case "$CMD" in
 
     atomic_update --arg id "$ID" --arg title "$TITLE" --arg builder "$BUILDER" \
       --arg verifier "$VERIFIER" --arg risk "$RISK" --argjson budget "$BUDGET" \
-      --argjson depends "$DEPENDS_JSON" --argjson skills "$SKILLS_JSON" --arg now "$NOW" '
+      --argjson depends "$DEPENDS_JSON" --argjson skills "$SKILLS_JSON" \
+      --argjson owns "$OWNS_JSON" --arg now "$NOW" '
       (if $builder == "" then null else $builder end) as $builder_val
       | (if $verifier == "" then null else $verifier end) as $verifier_val
       | .tasks[$id] = {
@@ -727,6 +1007,7 @@ case "$CMD" in
         blocked_from: null, blocked_reason: null, resume_condition: null,
         paused_from: null,
         decision_from: null,
+        owns: $owns,
         created_at: $now, updated_at: $now,
         history: [{from: null, to: "planned", at: $now}],
         assignments: [],
@@ -737,10 +1018,20 @@ case "$CMD" in
         reassessments: [],
         decisions: [],
         approvals: [],
-        rejections: []
+        rejections: [],
+        regressions: [],
+        ownership_declarations: (if ($owns | length) == 0 then [] else [{
+            owns: $owns, previous_owns: [], declared_at: $now, declared_via: "create"
+          }] end)
       }
     '
-    echo "CREATED $ID \"$TITLE\" state=planned"
+    if [ "$OWNS_JSON" = "[]" ]; then
+      echo "CREATED $ID \"$TITLE\" state=planned"
+    else
+      echo "CREATED $ID \"$TITLE\" state=planned owns=$(jq -r 'length' <<< "$OWNS_JSON")"
+      jq -r '.[] | "  owns: " + .' <<< "$OWNS_JSON"
+      echo "RUN 'task-state.sh check-overlap $ID' BEFORE DISPATCHING: this declaration has NOT been checked against other active tasks' declarations by creating it."
+    fi
     ;;
 
   start)
@@ -905,6 +1196,39 @@ case "$CMD" in
       fi
       exit 1
     fi
+
+    # REGRESSION FLOOR (Part 2.4). A task that was REOPENED by `regress` may
+    # not return to `done` on the evidence that was already sitting in its
+    # record when it was reopened -- that evidence describes the behaviour that
+    # has since been found to be broken, so accepting it would let a regression
+    # be closed by the very verification it invalidated.
+    #
+    # WHY THIS GUARD IS HERE AND NOT ONLY IN complete-gate.sh. The gate is the
+    # sanctioned path, but `complete` stays directly callable (this file has no
+    # knowledge of the gate, and says so in its header). For every other
+    # requirement that is fine, because the gate is where evidence QUALITY is
+    # judged. This one is different: Part 2.4's own acceptance text is that a
+    # regressed task "must NOT be able to return to done except through
+    # complete-gate.sh with fresh evidence", and a guard that only the gate
+    # enforces would leave `complete` itself as the bypass. So it is enforced in
+    # BOTH places, deliberately, and the gate's copy additionally judges whether
+    # the fresh evidence is any good.
+    #
+    # OPTIONAL BY CONSTRUCTION: require_regression_floor publishes "" for a task
+    # with no `evidence_floor` key at all -- every task that has never regressed,
+    # including every task created before Part 2.4 -- and this whole block is
+    # then skipped, so `complete` behaves for them exactly as it did before.
+    require_regression_floor "$ID"
+    if [ -n "$REGRESSION_FLOOR" ]; then
+      require_object_array "$ID" "evidence"
+      if [ "$ARRAY_LENGTH" -le "$REGRESSION_FLOOR" ]; then
+        echo "ERROR: task '$ID' was REOPENED after a regression and has recorded no evidence since. It held $REGRESSION_FLOOR evidence record(s) when it was reopened and still holds $ARRAY_LENGTH. Refusing this completion — nothing was changed." >&2
+        echo "  The evidence already in this record is the evidence that was accepted BEFORE the regression was found, so it cannot also be the evidence that the regression is fixed. Record fresh evidence for the repair ('task-state.sh record-evidence $ID ...') and complete through 'scripts/team/complete-gate.sh $ID', which independently re-checks the artifacts, the exit code, the test totals and the code snapshot." >&2
+        echo "  Run 'task-state.sh status $ID' to read the regressions array for what regressed, when, and what detected it." >&2
+        exit 1
+      fi
+    fi
+
     NOW=$(now_iso)
     atomic_update --arg id "$ID" --arg now "$NOW" --arg sv "$STALENESS_VERIFIED_ARG" '
       (if $sv == "" then {} else {staleness_verified: ($sv == "true")} end) as $verdict
@@ -2400,6 +2724,388 @@ case "$CMD" in
     echo "RECORDED-EVIDENCE $ID exit_code=$EXIT_CODE tests_total=$TESTS_TOTAL tests_skipped=$TESTS_SKIPPED artifacts=$ARTIFACT_COUNT snapshot=\"$SNAPSHOT\""
     ;;
 
+  declare-ownership)
+    # Part 2.4. Declare (or re-declare) the set of repository paths this task
+    # owns. See this file's header for the full contract.
+    ID="${2:-}"
+    [ -n "$ID" ] || {
+      echo "Usage: task-state.sh declare-ownership <id> --owns \"path/glob,path/glob,...\"" >&2
+      exit 2
+    }
+    if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+
+    DO_OWNS=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --owns) [ $# -ge 2 ] || { echo "ERROR: --owns requires a value" >&2; exit 2; }; DO_OWNS="$2"; shift 2 ;;
+        *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+
+    # REQUIRED and non-blank. There is deliberately no "declare nothing"
+    # spelling here: a task that owns nothing is a task that never declared,
+    # and erasing a declaration is exactly the move that would make the gate's
+    # scope check disappear at the moment it was about to bite. Whitespace-only
+    # is refused as empty is, the same as everywhere else in this file.
+    require_nonblank "--owns" "$DO_OWNS" \
+      "a declaration with no paths is not a declaration; it would silently switch off complete-gate.sh's scope check for this task"
+    normalise_owned_paths "$DO_OWNS"
+    DO_OWNS_JSON="$OWNED_PATHS_JSON"
+    if [ "$DO_OWNS_JSON" = "[]" ]; then
+      echo "ERROR: --owns resolved to no usable patterns at all (every entry was empty after trimming). Refusing — nothing was changed." >&2
+      exit 2
+    fi
+
+    require_task_state "$ID"
+    CUR_STATE="$TASK_STATE_VALUE"
+    case "$CUR_STATE" in
+      planned|building) ;;
+      # THE ANTI-EVASION RULE, and the reason this subcommand has a state
+      # restriction at all. `checking` is the state complete-gate.sh runs
+      # against, so a task that could re-declare its scope from `checking`
+      # could widen it to cover whatever it actually touched, at the exact
+      # moment the scope check was about to read it. Refused there, by name.
+      checking)
+        echo "ERROR: task '$ID' is in state 'checking', cannot re-declare ownership. Refusing — nothing was changed." >&2
+        echo "  'checking' is the state complete-gate.sh gates from, and its scope check reads this very field. Re-declaring here would mean widening a declared scope to fit whatever was actually changed, at the moment that scope was about to be checked. If the declaration was genuinely wrong, say so out loud: raise a decision card ('task-state.sh record-decision $ID ...') or fail the attempt ('task-state.sh fail $ID ...'), which returns the task to 'building' where a re-declaration is recorded honestly and visibly." >&2
+        exit 1
+        ;;
+      done)
+        echo "ERROR: task '$ID' is in state 'done', cannot re-declare ownership. A completed task's declaration is part of the record of what it was allowed to change; rewriting it after the fact would rewrite that record. Nothing was changed." >&2
+        exit 1
+        ;;
+      needs-reassessment) reassessment_required_error "$ID" "re-declare ownership"; exit 1 ;;
+      awaiting-decision) decision_required_error "$ID" "re-declare ownership"; exit 1 ;;
+      *)
+        echo "ERROR: task '$ID' is in state '$CUR_STATE', cannot declare ownership from this state (must be one of planned, building). A suspended task is coming back to the state it left; restore it first ('task-state.sh unblock $ID' or 'task-state.sh resume $ID') and declare from there, so the declaration is recorded against a task that is actually in flight." >&2
+        exit 1
+        ;;
+    esac
+
+    # The field being replaced and the array being appended to, both settled
+    # BEFORE the write. A present-but-wrong `owns` is corruption and refuses
+    # here rather than being silently overwritten -- overwriting it would
+    # destroy the evidence that the record had been tampered with.
+    require_string_array "$ID" "owns"
+    require_appendable_array "$ID" "ownership_declarations"
+
+    NOW=$(now_iso)
+    atomic_update --arg id "$ID" --arg now "$NOW" --argjson owns "$DO_OWNS_JSON" '
+      ((.tasks[$id].owns) // []) as $prev
+      | .tasks[$id].owns = $owns
+      | .tasks[$id].ownership_declarations = ((.tasks[$id].ownership_declarations // []) + [{
+          owns: $owns, previous_owns: $prev, declared_at: $now, declared_via: "declare-ownership"
+        }])
+      | .tasks[$id].updated_at = $now
+    '
+    echo "DECLARED-OWNERSHIP $ID paths=$(jq -r 'length' <<< "$DO_OWNS_JSON") state=$CUR_STATE"
+    jq -r '.[] | "  owns: " + .' <<< "$DO_OWNS_JSON"
+    echo "EVERY DECLARATION IS KEPT: the previous set is recorded in this task's ownership_declarations array, so a widened scope is visible in the record rather than invisible."
+    echo "RUN 'task-state.sh check-overlap $ID' NOW: declaring a scope does not check it against anyone else's."
+    ;;
+
+  check-overlap)
+    # Part 2.4. READ-ONLY: takes no lock, never writes.
+    #
+    # *** NONZERO NEVER MEANS "NO CONFLICT". *** Read that again before editing
+    # anything below. Every nonzero code this subcommand can produce means "do
+    # NOT proceed on the assumption that these files are yours". The ONLY route
+    # to exit 0 is a task that actually declares owned paths and whose
+    # declaration was compared, successfully, against every other active task's.
+    #   EXIT 0 => NO CONFLICT FOUND => proceed.
+    #   EXIT 1 => CONFLICT: an active other task declares an overlapping path.
+    #   EXIT 2 => bad usage => UNDETERMINED, do NOT proceed.
+    #   EXIT 3 => the task does not exist, or a record could not be read =>
+    #             UNDETERMINED, do NOT proceed.
+    #   EXIT 4 => UNDETERMINED: this task declares no owned paths at all, so no
+    #             overlap could be computed. This is NOT "no conflict".
+    # This is the same discipline, for the same reason, as check-approval's and
+    # check-external-action's: a caller branching on exit status is the natural
+    # shell idiom, and an exit-code contract that reads the wrong way round in
+    # one edge case is how a safety mechanism becomes the cause of the thing it
+    # was built to stop.
+    ID="${2:-}"
+    [ -n "$ID" ] || {
+      echo "Usage: task-state.sh check-overlap <id>" >&2
+      echo "  NONZERO NEVER MEANS NO CONFLICT: 0 = no overlap found, proceed; every other code = do NOT proceed." >&2
+      exit 2
+    }
+    if [ $# -gt 2 ]; then
+      echo "ERROR: unknown option: $3" >&2
+      exit 2
+    fi
+
+    # EVERY REFUSAL OUT OF THE SHARED GUARD FAMILY MUST EXIT 3, NOT 1. Exit 1
+    # here is a meaningful answer of its own ("there IS a conflict"), so a
+    # corruption refusal exiting 1 would report a determinate finding for an
+    # undeterminable one -- and would name conflicting tasks it never actually
+    # compared. Both are still "do NOT proceed", but they are different claims.
+    STATE_FAIL_EXIT=3
+
+    if [ ! -f "$STATE" ]; then
+      echo "ERROR: task '$ID' not found (no tasks recorded yet) — cannot determine whether any other task claims the same files. UNDETERMINED: do NOT proceed (exit 3 is not a clear result; NOTHING nonzero is)." >&2
+      exit 3
+    fi
+    require_overlap_verdict "$ID"
+    case "$OVERLAP_VERDICT" in
+      missing)
+        echo "ERROR: task '$ID' not found — cannot determine whether any other task claims the same files. UNDETERMINED: do NOT proceed; fix the task id and re-check." >&2
+        exit 3
+        ;;
+      unowned)
+        echo "UNDETERMINED $ID — this task declares NO owned paths, so there is nothing to compare and no overlap could be computed. Do NOT read this as 'no conflict'." >&2
+        echo "  Declare what this task owns first: task-state.sh declare-ownership $ID --owns \"path/glob,...\" (or create the task with --owns). Ownership is optional for every other subcommand and for complete-gate.sh — a task that declares nothing behaves exactly as it always did — but it is the entire input to THIS question, and answering 'no conflict' from an absent input is how a check becomes a no-op." >&2
+        exit 4
+        ;;
+      none)
+        echo "NO-OVERLAP $ID — no other active task declares a path that overlaps this task's declaration. PROCEED."
+        [ -n "$OVERLAP_DETAIL" ] && echo "$OVERLAP_DETAIL"
+        echo "  Exit 0 means exactly: the declared patterns were compared against every task that is not 'done', and none collided. It does NOT mean the working tree is clean, that nobody is editing these files outside the task system, or that a task which declares NOTHING is not about to touch them — an undeclared task contributes no patterns and therefore cannot be detected here."
+        exit 0
+        ;;
+      conflict)
+        echo "CONFLICT $ID — another active task declares an overlapping path. Do NOT dispatch concurrent work on these files." >&2
+        [ -n "$OVERLAP_DETAIL" ] && echo "$OVERLAP_DETAIL" >&2
+        echo "  A task stops holding its declaration only when it reaches 'done' — blocked, paused, awaiting-decision and needs-reassessment tasks are all coming back to their files, so they still conflict. Either finish or narrow the other task, or narrow this one ('task-state.sh declare-ownership $ID --owns \"...\"') so the two declarations no longer meet." >&2
+        exit 1
+        ;;
+      *)
+        # UNREACHABLE by construction: require_overlap_verdict validates its
+        # verdict against exactly the four words above and refuses (exit 3)
+        # otherwise. Present anyway because the alternative to an explicit
+        # catch-all on a `case` that gates an action is falling through to exit
+        # 0, and exit 0 here means PROCEED.
+        echo "ERROR: task '$ID' — internal: unrecognised overlap verdict '$OVERLAP_VERDICT'. UNDETERMINED: do NOT proceed." >&2
+        exit 3
+        ;;
+    esac
+    ;;
+
+  check-combined)
+    # Part 2.4. READ-ONLY: takes no lock, never writes.
+    #
+    # *** NONZERO NEVER MEANS "THE COMBINATION IS VERIFIED". ***
+    #   EXIT 0 => every named task is done and every one's latest evidence was
+    #             recorded against the code as it stands RIGHT NOW => the
+    #             combination is current.
+    #   EXIT 1 => NOT CURRENT: at least one task's evidence predates the current
+    #             code. Re-verify that part before releasing the set.
+    #   EXIT 2 => bad usage => UNDETERMINED, do NOT proceed.
+    #   EXIT 3 => UNDETERMINED: a named task does not exist, has no evidence at
+    #             all, or its record could not be read.
+    #   EXIT 4 => UNDETERMINED: a named task is not 'done'.
+    #   EXIT 5 => UNDETERMINED: there is no version control, so no snapshot on
+    #             either side is a code identity and nothing could be compared.
+    ID="${2:-}"
+    [ -n "$ID" ] || {
+      echo "Usage: task-state.sh check-combined <id> <id> [<id>...]" >&2
+      echo "  NONZERO NEVER MEANS VERIFIED: 0 = every part's evidence is current against the code now; every other code = do NOT release the set." >&2
+      exit 2
+    }
+    shift
+    CC_IDS=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --*) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+        *) CC_IDS+=("$1"); shift ;;
+      esac
+    done
+
+    # AT LEAST TWO, deliberately. "Verify combined changes" is a question about
+    # a COMBINATION; asked of one task it is just that task's own gate check,
+    # already done, and answering it here would let a caller believe a
+    # combination had been checked when only a part had.
+    if [ "${#CC_IDS[@]}" -lt 2 ]; then
+      echo "ERROR: check-combined needs at least TWO task ids — it verifies that a SET of finished parts is mutually current. For a single task, its own completion gate already answered that question." >&2
+      exit 2
+    fi
+    # Duplicates are refused rather than silently deduped: a repeated id in a
+    # release set is a mistake in the caller's list, and quietly accepting it
+    # would report "3 parts verified" for two.
+    CC_DUPES=$(printf '%s\n' "${CC_IDS[@]}" | sort | uniq -d)
+    if [ -n "$CC_DUPES" ]; then
+      echo "ERROR: check-combined was given the same task id more than once: $(echo "$CC_DUPES" | tr '\n' ' ')" >&2
+      echo "  Refusing rather than deduping: a repeated id means the caller's list of parts is wrong, and answering it would report more parts verified than were named." >&2
+      exit 2
+    fi
+
+    # Same reasoning as check-overlap's: exit 1 is a meaningful answer here
+    # ("the set is stale"), so corruption refusals must not land on it.
+    STATE_FAIL_EXIT=3
+
+    if [ ! -f "$STATE" ]; then
+      echo "ERROR: no tasks recorded yet — cannot verify any combination. UNDETERMINED: do NOT proceed." >&2
+      exit 3
+    fi
+    # Recompute the code identity live, right now, rather than trusting
+    # anything cached -- the same way `resume` and check-approval do.
+    CC_CURRENT=$(compute_snapshot)
+    require_combined_verdict "$CC_CURRENT" "${CC_IDS[@]}"
+    case "$COMBINED_VERDICT" in
+      ok)
+        echo "COMBINED-CURRENT ${#CC_IDS[@]} task(s) — every part's latest evidence was recorded against the code as it stands now."
+        [ -n "$COMBINED_DETAIL" ] && echo "$COMBINED_DETAIL"
+        echo "  Exit 0 means exactly: each named task is 'done', each has evidence, and each evidence record's code_snapshot equals the snapshot computed live just now. It does NOT re-run anyone's tests, re-open anyone's artifacts, or check that the parts are correct TOGETHER in any sense beyond 'none of them was verified against code that has since changed'. Run the real integration checks separately; this says the per-part verdicts have not gone out of date underneath them."
+        exit 0
+        ;;
+      stale)
+        echo "NOT-COMBINED-CURRENT — at least one part's evidence predates the code as it stands now. Do NOT release this set." >&2
+        [ -n "$COMBINED_DETAIL" ] && echo "$COMBINED_DETAIL" >&2
+        echo "  Each of those parts passed its own gate against code that has since moved, so its completion is a statement about a tree that no longer exists. Re-verify it: 'task-state.sh regress <id> --reason \"...\" --detected-by \"...\"' reopens it and forces fresh evidence, or record fresh evidence and re-gate if it was never actually completed against this tree." >&2
+        exit 1
+        ;;
+      missing)
+        echo "UNDETERMINED — a named task does not exist, so the combination could not be verified. Do NOT proceed." >&2
+        [ -n "$COMBINED_DETAIL" ] && echo "$COMBINED_DETAIL" >&2
+        exit 3
+        ;;
+      noevidence)
+        echo "UNDETERMINED — a named task has no evidence records at all, so there is nothing to judge its currency against. Do NOT proceed." >&2
+        [ -n "$COMBINED_DETAIL" ] && echo "$COMBINED_DETAIL" >&2
+        echo "  A task can reach 'done' without evidence only by calling 'task-state.sh complete' directly rather than through complete-gate.sh, which requires at least one evidence record. That is worth knowing about this set." >&2
+        exit 3
+        ;;
+      notdone)
+        echo "UNDETERMINED — a named task is not 'done', so this is not a set of finished parts. Do NOT proceed." >&2
+        [ -n "$COMBINED_DETAIL" ] && echo "$COMBINED_DETAIL" >&2
+        exit 4
+        ;;
+      unverifiable)
+        echo "UNDETERMINED — the snapshots could not be compared, so whether these parts are mutually current CANNOT BE ANSWERED. Do NOT proceed." >&2
+        [ -n "$COMBINED_DETAIL" ] && echo "$COMBINED_DETAIL" >&2
+        echo "  At least one of those is the placeholder '$NO_GIT_SNAPSHOT' — what compute_snapshot returns when there is no version control to identify the code with. Two such values match for every possible state of the code, so reading that match as 'the set is current' would claim a check that did not happen. This degrades to CHECK BY HAND, never to 'proceed'." >&2
+        exit 5
+        ;;
+      *)
+        # UNREACHABLE by construction, present for the same reason
+        # check-overlap's catch-all is: falling through a `case` that gates an
+        # action lands on exit 0, and exit 0 here means "release it".
+        echo "ERROR: internal: unrecognised combined verdict '$COMBINED_VERDICT'. UNDETERMINED: do NOT proceed." >&2
+        exit 3
+        ;;
+    esac
+    ;;
+
+  regress)
+    # Part 2.4. "Later regressions reopen affected work" (DESIGN.md, "Delivery
+    # loop"). Moves a `done` task back to `building` and, in the same atomic
+    # write, records an evidence floor that makes its OLD evidence unusable for
+    # re-completion. See this file's header for why the destination is
+    # `building` rather than `checking` or a new state.
+    ID="${2:-}"
+    [ -n "$ID" ] || {
+      echo "Usage: task-state.sh regress <id> --reason \"<what regressed>\" --detected-by \"<what surfaced it>\"" >&2
+      exit 2
+    }
+    if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+
+    RG_REASON=""; RG_DETECTED=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --reason) [ $# -ge 2 ] || { echo "ERROR: --reason requires a value" >&2; exit 2; }; RG_REASON="$2"; shift 2 ;;
+        --detected-by) [ $# -ge 2 ] || { echo "ERROR: --detected-by requires a value" >&2; exit 2; }; RG_DETECTED="$2"; shift 2 ;;
+        *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+
+    # BOTH REQUIRED, both non-blank, both checked before any state read and
+    # before any write. Reopening a completed part un-says a verdict this
+    # subsystem already recorded; doing that without saying what regressed and
+    # what surfaced it is the "conceal failures" pattern DESIGN.md forbids,
+    # pointed the other way -- it would let finished work be quietly reopened,
+    # or a completion quietly disowned, with nothing in the record to review.
+    require_nonblank "--reason" "$RG_REASON" \
+      "reopening a completed part without recording what regressed leaves nothing for the repair to aim at, and nothing for a later reader to judge whether the reopening was warranted"
+    require_nonblank "--detected-by" "$RG_DETECTED" \
+      "DESIGN.md, 'Delivery loop': a regression reopens affected work — the record has to say what surfaced it, or the reopening is an assertion with no evidence behind it"
+
+    require_task_state "$ID"
+    CUR_STATE="$TASK_STATE_VALUE"
+    if [ "$CUR_STATE" != "done" ]; then
+      echo "ERROR: task '$ID' is in state '$CUR_STATE', cannot regress (must be 'done'). A regression is the discovery that COMPLETED work no longer holds; a task that is not complete has nothing to reopen — it is still open." >&2
+      if [ "$CUR_STATE" = "needs-reassessment" ]; then
+        reassessment_required_error "$ID" "regress"
+      elif [ "$CUR_STATE" = "awaiting-decision" ]; then
+        decision_required_error "$ID" "regress"
+      fi
+      exit 1
+    fi
+
+    # The evidence array's shape is settled BEFORE its length is used as the
+    # floor: a floor computed from an array this script could not read would be
+    # a number with no meaning, and it would be written into the record as
+    # though it had one.
+    require_object_array "$ID" "evidence"
+    NEW_FLOOR="$ARRAY_LENGTH"
+    require_appendable_array "$ID" "regressions"
+
+    # MONOTONIC, like attempts_used. `evidence` is append-only, so a floor
+    # computed now can never legitimately be lower than one recorded at an
+    # earlier regression. If it is, the record has been edited and the new
+    # floor would be a WEAKER guard than the one already stored -- which is
+    # precisely the "never learn to remove checks" move, arrived at by
+    # corruption rather than by design. Refuse instead of writing it.
+    require_regression_floor "$ID"
+    if [ -n "$REGRESSION_FLOOR" ] && [ "$NEW_FLOOR" -lt "$REGRESSION_FLOOR" ]; then
+      echo "ERROR: task '$ID' holds $NEW_FLOOR evidence record(s) but already carries an evidence_floor of $REGRESSION_FLOOR from an earlier regression. Refusing this regression — nothing was changed." >&2
+      echo "  The evidence array is append-only, so it cannot legitimately have shrunk below a floor recorded earlier. Writing the lower number would REPLACE a stronger completion guard with a weaker one. The state file may have been hand-edited or partially written — only task-state.sh should write it." >&2
+      exit 1
+    fi
+
+    SNAPSHOT=$(compute_snapshot)
+    NOW=$(now_iso)
+    atomic_update --arg id "$ID" --arg now "$NOW" --arg reason "$RG_REASON" \
+      --arg detected "$RG_DETECTED" --arg snapshot "$SNAPSHOT" \
+      --argjson floor "$NEW_FLOOR" '
+      .tasks[$id].regressions = ((.tasks[$id].regressions // []) + [{
+          reason: $reason,
+          detected_by: $detected,
+          regressed_at: $now,
+          code_snapshot: $snapshot,
+          evidence_at_regression: $floor,
+          regressed_from: "done"
+        }])
+      | .tasks[$id].evidence_floor = $floor
+      | .tasks[$id].state = "building"
+      | .tasks[$id].updated_at = $now
+      | .tasks[$id].history += [{
+          from: "done", to: "building", at: $now,
+          resolution: "regressed",
+          reason: $reason, detected_by: $detected,
+          evidence_floor: $floor, code_snapshot: $snapshot
+        }]
+    '
+    echo "REGRESSED $ID from=done state=building evidence_floor=$NEW_FLOOR snapshot=\"$SNAPSHOT\""
+    echo "REASON: $RG_REASON"
+    echo "DETECTED BY: $RG_DETECTED"
+    echo "THIS TASK CANNOT RE-COMPLETE ON ITS OLD EVIDENCE. It held $NEW_FLOOR evidence record(s) at the moment it was reopened, and both 'task-state.sh complete' and complete-gate.sh now refuse it until the evidence array has GROWN past that. Repair, then 'task-state.sh record-evidence $ID ...', then 'task-state.sh check $ID', then 'scripts/team/complete-gate.sh $ID'."
+    # AFFECTED PARTS, REPORTED RATHER THAN REOPENED. DESIGN.md says a later
+    # regression reopens affected work, and the parts most likely to be
+    # affected are the ones that declared a dependency on this one. They are
+    # NOT reopened automatically, deliberately: this script has not verified
+    # that any of them actually regressed, and reopening a part whose own
+    # evidence is perfectly current would be asserting a finding it did not
+    # make -- the same dishonesty as claiming a check that could not run, in
+    # the other direction. They are named here so the decision is made by
+    # someone who can actually look.
+    # DISPLAY-ONLY, and deliberately not hardened for the same reason `status`
+    # and `list` are not: it runs AFTER the transition, it gates nothing, and
+    # its worst case is naming fewer dependents than exist.
+    RG_DEPENDENTS=$(jq -r --arg id "$ID" '
+      [ .tasks | to_entries[]
+        | select((.value | type) == "object")
+        | select(((.value.depends_on) // []) | type == "array")
+        | select(((.value.depends_on) // []) | index($id) != null)
+        | select(.value.state == "done")
+        | .key ] | join(" ")
+    ' "$STATE" 2>/dev/null)
+    RG_DEPENDENTS="${RG_DEPENDENTS%$'\r'}"
+    if [ -n "$RG_DEPENDENTS" ]; then
+      echo "POSSIBLY AFFECTED (completed tasks that declared a dependency on $ID): $RG_DEPENDENTS"
+      echo "  These are NOT reopened automatically — nothing here has checked whether they actually regressed, and reopening a part whose evidence is still current would assert a finding no one made. Review each, and run 'task-state.sh regress <id> --reason \"...\" --detected-by \"...\"' on the ones that genuinely no longer hold."
+    fi
+    ;;
+
   status)
     # DISPLAY-ONLY, AND DELIBERATELY NOT HARDENED. `status` prints a record and
     # gates nothing: it takes no lock, performs no transition, and no other
@@ -2451,6 +3157,7 @@ Usage: task-state.sh <command> [args]
 Commands:
   create <id> <title> [--depends id1,id2,...] [--builder name] [--verifier name]
                        [--skills a,b] [--risk low|medium|high] [--budget N]
+                       [--owns path/glob,path/glob,...]
   start <id>
   check <id>
   complete <id> [--staleness-verified yes|no]
@@ -2483,6 +3190,10 @@ Commands:
   record-evidence <id> --command "<cmd>" --exit-code N --tests-total N
                    --tests-skipped N --output-file <path>
                    [--artifact <path>]... [--cwd <path>]
+  declare-ownership <id> --owns "path/glob,path/glob,..."
+  check-overlap <id>
+  check-combined <id> <id> [<id>...]
+  regress <id> --reason "<what regressed>" --detected-by "<what surfaced it>"
   status <id>
   list
 
@@ -2496,6 +3207,73 @@ States: planned -> building -> checking -> done
         needs-reassessment --reassess--> building|checking (the ONLY exit)
         awaiting-decision --record-approval|record-rejection--> (restored
                                                     state; the ONLY exits)
+        done --regress--> building    (a later regression reopens completed
+                                       work; the ONLY transition out of done)
+
+Ownership, overlap, combined changes and regressions (Part 2.4). A task MAY
+declare the repository paths it owns, as globs where `*` and `?` are the only
+metacharacters and `*` crosses "/": `create --owns "a/*,b/c.sh"` at plan time,
+`declare-ownership <id> --owns "..."` once the scope is settled.
+`declare-ownership` is allowed only from `planned` or `building` — REFUSED from
+`checking`, which is the state complete-gate.sh gates from, so a scope cannot be
+widened to fit what was actually touched at the moment it is about to be
+checked. Every declaration keeps the previous set in the task's
+ownership_declarations array, so widening inside `building` is visible rather
+than prevented — auditability, not prevention, and saying which is the point.
+OWNERSHIP IS OPTIONAL EVERYWHERE: a task that declares nothing behaves exactly
+as it did before this part, and complete-gate.sh's scope check is skipped for
+it entirely.
+
+check-overlap answers "does another ACTIVE task claim the same files?" with its
+exit status:
+  EXIT 0 = NO CONFLICT FOUND            -> proceed.
+  EXIT 1 = CONFLICT with an active task -> do NOT dispatch concurrent work.
+  EXIT 2 = bad usage                    -> UNDETERMINED, do NOT proceed.
+  EXIT 3 = task not found/unreadable    -> UNDETERMINED, do NOT proceed.
+  EXIT 4 = this task declares NO owned paths, so no overlap could be computed
+           -> UNDETERMINED. This is NOT "no conflict": answering "no conflict"
+           from an absent input is how a check becomes a no-op.
+NONZERO NEVER MEANS "NO CONFLICT". "Active" means not `done` — blocked, paused,
+awaiting-decision and needs-reassessment tasks are all coming back to their
+files. Disclosed limits: pattern overlap is decided by containment plus a
+shared-literal-prefix rule rather than a true glob intersection, which never
+misses an overlap but can report one that cannot happen ("src/*/a.js" vs
+"src/*/b.js"); a task that declares NOTHING contributes no patterns and cannot
+be detected by anyone; and one unreadable task record refuses every overlap
+check in the project (exit 3), the same fail-closed whole-array validation
+approvals/attempts/external_actions already use.
+
+check-combined <id> <id> [...] answers "is this SET of finished parts mutually
+current?" — each part's completion was true at a different moment, and a set of
+individually-true statements can all be about trees that no longer exist:
+  EXIT 0 = every part is done and every part's latest evidence was recorded
+           against the snapshot the code is at NOW.
+  EXIT 1 = NOT CURRENT: a part's evidence predates the current code.
+  EXIT 2 = bad usage (fewer than two ids, or a repeated id).
+  EXIT 3 = UNDETERMINED: a named task is missing, has no evidence, or is
+           unreadable.
+  EXIT 4 = UNDETERMINED: a named task is not `done`.
+  EXIT 5 = UNDETERMINED: no version control, so currency could not be checked.
+NONZERO NEVER MEANS "VERIFIED". It does not re-run tests, re-open artifacts, or
+judge whether the parts are correct together in any richer sense — it says the
+per-part verdicts have not gone out of date underneath the release. The report
+names, for each stale part, the parts whose evidence is newer; that ordering
+comes from timestamps and is DISPLAY ONLY, because the verdict comes solely from
+the snapshot comparison.
+
+regress <id> --reason "..." --detected-by "..." reopens a `done` task into
+`building` and records what regressed, when, and what surfaced it. It also
+records `evidence_floor` — the evidence-array length at that moment — and BOTH
+`complete` and complete-gate.sh then refuse until the array has GROWN past it.
+That floor, not the state, is what forces real re-verification: a regression
+found without a code change leaves the old evidence's artifacts present, its
+exit code 0 and its snapshot still matching, so checks 3-6 would all pass on it.
+`building` rather than `checking` (which is one command from done) and rather
+than a new state (which would buy nothing the floor does not already give).
+Completed tasks that depended on the regressed one are REPORTED as possibly
+affected, never reopened automatically — nothing here has checked whether they
+actually regressed, and reopening one whose evidence is current would assert a
+finding no one made.
 
 Decision cards and scoped approvals: ROUTINE REPAIRS PROCEED UNTOUCHED — a
 failed attempt inside budget still goes fail -> building with no card and no
@@ -2560,8 +3338,10 @@ two counters: state, depends_on, blocked_from, paused_from, decision_from,
 attempts (and its hypothesis / attempt_number), checkpoints (and its
 next_action / code_snapshot), external_actions (and its key), decisions (and
 its decision_id / status), approvals (and its decision_id / scope /
-target_revision / approved_by / deployment_impact / conditions), history,
-assignments, evidence, reassessments and rejections. Present but of the wrong
+target_revision / approved_by / deployment_impact / conditions), owns,
+evidence_floor, history,
+assignments, evidence, reassessments, rejections, regressions and
+ownership_declarations. Present but of the wrong
 type, null, or empty where the
 schema always writes content => REFUSED, naming the task, the field and the
 offending value, with nothing written. Genuinely absent => still defaults,
