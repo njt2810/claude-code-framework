@@ -519,7 +519,7 @@ check "control: the verified completion records staleness_verified=true (got: $G
 rm -rf "$GIT_CTRL"
 
 echo ""
-echo "== relocated install: the three scripts run from ~/.claude/scripts/team/ against a foreign project =="
+echo "== relocated install: the four team files run from ~/.claude/scripts/team/ against a foreign project =="
 # This is the packaging contract, tested end to end rather than assumed.
 # install.bat copies scripts/team/*.sh to %USERPROFILE%\.claude\scripts\team\,
 # and skills/team-start + skills/team-status invoke them from there by
@@ -528,17 +528,26 @@ echo "== relocated install: the three scripts run from ~/.claude/scripts/team/ a
 # this repo either -- with state landing in THAT project, never near the repo
 # or the install directory. Two independent temp trees, so a path bug in
 # either direction shows up as a failure instead of accidentally working.
+#
+# There are FOUR files, not three: task-state.sh is an entry point that
+# sources its guard/helper library, task-state-lib.sh, from its own directory.
+# That makes this section the direct test of that resolution too -- the
+# foreign project below has no scripts/team/ directory of its own, so a
+# task-state.sh that looked for its library relative to the CWD instead of
+# relative to itself would fail on the very first invocation here rather
+# than anywhere subtle.
 INSTALL_ROOT=$(mktemp -d)
 FOREIGN_PROJ=$(mktemp -d)
 mkdir -p "$INSTALL_ROOT/scripts/team"
 cp "$REPO_ROOT"/scripts/team/*.sh "$INSTALL_ROOT/scripts/team/"
 chmod +x "$INSTALL_ROOT"/scripts/team/*.sh 2>/dev/null
 R_TASK_STATE="$INSTALL_ROOT/scripts/team/task-state.sh"
+R_TASK_STATE_LIB="$INSTALL_ROOT/scripts/team/task-state-lib.sh"
 R_ASSIGN="$INSTALL_ROOT/scripts/team/assign.sh"
 R_GATE="$INSTALL_ROOT/scripts/team/complete-gate.sh"
 
-[ -f "$R_TASK_STATE" ] && [ -f "$R_ASSIGN" ] && [ -f "$R_GATE" ] && RC_CHK=0 || RC_CHK=1
-check "test setup: all 3 team scripts copied to a non-repo install directory" $RC_CHK
+[ -f "$R_TASK_STATE" ] && [ -f "$R_TASK_STATE_LIB" ] && [ -f "$R_ASSIGN" ] && [ -f "$R_GATE" ] && RC_CHK=0 || RC_CHK=1
+check "test setup: all 4 team files (3 entry-point scripts + task-state-lib.sh) copied to a non-repo install directory" $RC_CHK
 case "$INSTALL_ROOT/" in "$REPO_ROOT"/*) RC_CHK=1 ;; *) RC_CHK=0 ;; esac
 check "test setup: install directory is genuinely outside the repo" $RC_CHK
 case "$FOREIGN_PROJ/" in "$REPO_ROOT"/*) RC_CHK=1 ;; *) RC_CHK=0 ;; esac
@@ -557,7 +566,7 @@ check "the old cwd-relative 'bash scripts/team/task-state.sh' form genuinely fai
 
 echo "-- full lifecycle by absolute path: create -> start -> check -> record-evidence -> complete-gate -> done --"
 ( cd "$FOREIGN_PROJ" && bash "$R_TASK_STATE" create relocated-1 "Relocated lifecycle task" ) >/dev/null 2>&1
-check "create works from a foreign cwd with an absolute script path" $?
+check "create works from a foreign cwd with an absolute script path (so task-state.sh found task-state-lib.sh by its own location, not by cwd)" $?
 ( cd "$FOREIGN_PROJ" && bash "$R_TASK_STATE" start relocated-1 ) >/dev/null 2>&1
 check "start works from a foreign cwd" $?
 RELOC_STATE=$(cd "$FOREIGN_PROJ" && bash "$R_TASK_STATE" status relocated-1 2>/dev/null | jq -r '.state')
