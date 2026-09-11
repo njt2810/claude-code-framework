@@ -1590,6 +1590,545 @@ else
   echo "  SKIP: 'timeout' not on PATH, cannot safely bound the concurrent-fail test"
 fi
 
+echo "== Part 2.3: a decision card requires ALL SIX of DESIGN.md's elements, non-blank =="
+# DESIGN.md ("User experience") enumerates six: what is blocked; why, including
+# what was checked; recommended option and reason; each option's benefit and
+# main pitfall; impact on scope, cost and delivery; one clear question. A card
+# missing the recommendation or the question is not a decision card -- it is a
+# shrug that hands the whole problem back unframed. Every one of the six is
+# asserted individually, because "some of them are required" is exactly what a
+# partial implementation looks like from the outside.
+bash "$SCRIPT" create task-dc "Decision card task" >/dev/null 2>&1
+bash "$SCRIPT" start task-dc >/dev/null 2>&1
+check "create+start the decision-card fixture" $?
+DC_ALL=(--blocked "the migration needs an unplanned column drop" \
+        --why "ran it in staging; the index cannot build while the legacy column exists" \
+        --recommend "drop it in the same migration, because two-step leaves a week of dual-write code" \
+        --options "A: one migration, one rollback point; pitfall 40s lock. B: no lock; pitfall a week of extra code paths." \
+        --impact "scope +1 migration step; cost none; delivery Thursday vs the following Wednesday" \
+        --question "Take the 40-second lock on Thursday, or dual-write and ship a week later?")
+for DC_MISS in blocked why recommend options impact question; do
+  CS1=$(checksum "$STATE_FILE")
+  DC_ARGS=()
+  DC_I=0
+  while [ "$DC_I" -lt "${#DC_ALL[@]}" ]; do
+    if [ "${DC_ALL[$DC_I]}" = "--$DC_MISS" ]; then DC_I=$((DC_I+2)); continue; fi
+    DC_ARGS+=("${DC_ALL[$DC_I]}" "${DC_ALL[$((DC_I+1))]}")
+    DC_I=$((DC_I+2))
+  done
+  OUT=$(bash "$SCRIPT" record-decision task-dc "${DC_ARGS[@]}" 2>&1); RC=$?
+  [ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+  check "record-decision without --$DC_MISS exits 2 (got $RC)" $RC_CHK
+  echo "$OUT" | grep -qF -- "--$DC_MISS"; check "that refusal names the missing --$DC_MISS" $?
+  CS2=$(checksum "$STATE_FILE")
+  [ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1
+  check "state file byte-for-byte unchanged after the rejected record-decision (--$DC_MISS)" $RC_CHK
+done
+echo "-- whitespace-only is refused exactly as empty is, for every one of the six --"
+for DC_BLANK in blocked why recommend options impact question; do
+  DC_ARGS=()
+  DC_I=0
+  while [ "$DC_I" -lt "${#DC_ALL[@]}" ]; do
+    if [ "${DC_ALL[$DC_I]}" = "--$DC_BLANK" ]; then
+      DC_ARGS+=("${DC_ALL[$DC_I]}" "   ")
+    else
+      DC_ARGS+=("${DC_ALL[$DC_I]}" "${DC_ALL[$((DC_I+1))]}")
+    fi
+    DC_I=$((DC_I+2))
+  done
+  OUT=$(bash "$SCRIPT" record-decision task-dc "${DC_ARGS[@]}" 2>&1); RC=$?
+  [ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+  check "record-decision with a whitespace-only --$DC_BLANK exits 2 (got $RC)" $RC_CHK
+done
+echo "-- a flag given with no value must error, not consume the next flag or hang --"
+OUT=$(bash "$SCRIPT" record-decision task-dc --blocked 2>&1); RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "record-decision --blocked with no trailing value exits 2 (got $RC)" $RC_CHK
+DC_STATE=$(bash "$SCRIPT" status task-dc | jq -r '.state')
+[ "$DC_STATE" = "building" ] && RC_CHK=0 || RC_CHK=1
+check "the task is still 'building' after every rejected card (got $DC_STATE)" $RC_CHK
+
+echo "== Part 2.3: a complete card is recorded in full and STOPS the task =="
+DC_OUT=$(bash "$SCRIPT" record-decision task-dc "${DC_ALL[@]}" 2>&1); RC=$?
+check "record-decision with all six elements succeeds (exit $RC)" $RC
+echo "$DC_OUT" | grep -q "RECORDED-DECISION task-dc decision=task-dc-d1"; check "its output names the stable decision id (task-dc-d1)" $?
+echo "$DC_OUT" | grep -q "state=awaiting-decision"; check "its output states the new state" $?
+echo "$DC_OUT" | grep -qF "6. QUESTION:"; check "it prints the card back, question included, for a human to read" $?
+DC_REC=$(bash "$SCRIPT" status task-dc)
+echo "$DC_REC" | jq -e '.state == "awaiting-decision"' >/dev/null; check "the task really is in 'awaiting-decision'" $?
+echo "$DC_REC" | jq -e '.decision_from == "building"' >/dev/null; check "decision_from recorded the state the card was raised from" $?
+echo "$DC_REC" | jq -e '(.decisions | length) == 1' >/dev/null; check "exactly one decision card is recorded" $?
+echo "$DC_REC" | jq -e '.decisions[0] | (.blocked|length)>0 and (.why|length)>0 and (.recommend|length)>0 and (.options|length)>0 and (.impact|length)>0 and (.question|length)>0' >/dev/null
+check "all six card elements are stored with content" $?
+echo "$DC_REC" | jq -e '.decisions[0].status == "open" and .decisions[0].resolved_at == null' >/dev/null
+check "the card is stored as open and unresolved" $?
+echo "$DC_REC" | jq -e '.decisions[0] | has("code_snapshot") and ((.code_snapshot|type) == "string")' >/dev/null
+check "the card records the code snapshot it was raised against" $?
+echo "$DC_REC" | jq -e '.history[-1] | .to == "awaiting-decision" and .decision_id == "task-dc-d1"' >/dev/null
+check "the transition is in the task's own history, carrying the decision id" $?
+
+echo "== Part 2.3: CONTROL — 'awaiting-decision' is a REAL STOP; every other door is refused =="
+# Same design as the needs-reassessment control above: each attempt must be
+# refused AND must leave the state file byte-for-byte unchanged.
+CS1=$(checksum "$STATE_FILE")
+AD_START=$(bash "$SCRIPT" start task-dc 2>&1); RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "start is refused from awaiting-decision (exit $RC)" $RC_CHK
+echo "$AD_START" | grep -q "record-approval"; check "the refused start points the caller at record-approval/record-rejection" $?
+AD_CHECK=$(bash "$SCRIPT" check task-dc 2>&1); RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "check is refused from awaiting-decision (exit $RC)" $RC_CHK
+echo "$AD_CHECK" | grep -q "record-rejection"; check "the refused check names both ways to answer the card" $?
+AD_COMPLETE=$(bash "$SCRIPT" complete task-dc 2>&1); RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "complete is refused from awaiting-decision (exit $RC)" $RC_CHK
+echo "$AD_COMPLETE" | grep -q "record-approval"; check "the refused complete points at the exits" $?
+AD_FAIL=$(bash "$SCRIPT" fail task-dc --reason "r" --hypothesis "h" 2>&1); RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "fail is refused from awaiting-decision (exit $RC)" $RC_CHK
+echo "$AD_FAIL" | grep -q "record-approval"; check "the refused fail points at the exits" $?
+AD_BLOCK=$(bash "$SCRIPT" block task-dc "pretend an external obstacle" 2>&1); RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "block is refused from awaiting-decision, so unblock cannot become a third exit (exit $RC)" $RC_CHK
+echo "$AD_BLOCK" | grep -q "record-approval"; check "the refused block points at the exits" $?
+AD_PAUSE=$(bash "$SCRIPT" pause task-dc --next-action "sneak out via resume" 2>&1); RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "pause is refused from awaiting-decision, so resume cannot become a third exit (exit $RC)" $RC_CHK
+echo "$AD_PAUSE" | grep -q "record-approval"; check "the refused pause points at the exits" $?
+bash "$SCRIPT" unblock task-dc >/dev/null 2>&1; RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "unblock is refused (the task is not blocked and cannot be made blocked) (exit $RC)" $RC_CHK
+bash "$SCRIPT" resume task-dc >/dev/null 2>&1; RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "resume is refused (the task is not paused and cannot be made paused) (exit $RC)" $RC_CHK
+AD_SECOND=$(bash "$SCRIPT" record-decision task-dc "${DC_ALL[@]}" 2>&1); RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "a SECOND decision card is refused while the first is unanswered (exit $RC)" $RC_CHK
+echo "$AD_SECOND" | grep -q "already in state 'awaiting-decision'"; check "that refusal says a card is already open" $?
+CS2=$(checksum "$STATE_FILE")
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1
+check "state file checksum unchanged after ALL nine refused escape attempts" $RC_CHK
+AD_STATE=$(bash "$SCRIPT" status task-dc | jq -r '.state')
+[ "$AD_STATE" = "awaiting-decision" ] && RC_CHK=0 || RC_CHK=1
+check "task-dc is still in awaiting-decision after every escape attempt (got $AD_STATE)" $RC_CHK
+echo "-- the OTHER stop cannot be sidestepped into this one --"
+NR2_DIR=$(mktemp -d)
+( cd "$NR2_DIR" && bash "$SCRIPT" create c "Stopped task" --budget 1 && bash "$SCRIPT" start c \
+  && bash "$SCRIPT" fail c --reason "r" --hypothesis "the only theory" ) >/dev/null 2>&1
+NR2_OUT=$(cd "$NR2_DIR" && bash "$SCRIPT" record-decision c "${DC_ALL[@]}" 2>&1); RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "record-decision is refused from needs-reassessment (exit $RC)" $RC_CHK
+echo "$NR2_OUT" | grep -q "reassess"; check "that refusal points at reassess, not at the decision exits" $?
+rm -rf "$NR2_DIR"
+echo "-- the record-* trio DELIBERATELY stays available, as it does for blocked/paused --"
+# Stated rather than left to be discovered: unlike needs-reassessment, a task
+# awaiting a human decision is still legitimately recording what it checked
+# (DESIGN.md card element 2 is "why, INCLUDING WHAT WAS CHECKED" -- that is
+# evidence) and which external actions already happened. What is frozen here is
+# the WORK, not the audit trail.
+bash "$SCRIPT" record-assignment task-dc --role builder --agent-type team-builder >/dev/null 2>&1
+check "record-assignment is ACCEPTED from awaiting-decision (deliberate difference from needs-reassessment)" $?
+echo "evidence for task-dc" > dc-out.txt
+bash "$SCRIPT" record-evidence task-dc --command "true" --exit-code 0 --tests-total 1 --tests-skipped 0 --output-file dc-out.txt >/dev/null 2>&1
+check "record-evidence is ACCEPTED from awaiting-decision" $?
+bash "$SCRIPT" record-external-action task-dc --key DCK1 --description "posted the card to the owner" >/dev/null 2>&1
+check "record-external-action is ACCEPTED from awaiting-decision" $?
+AD_STATE=$(bash "$SCRIPT" status task-dc | jq -r '.state')
+[ "$AD_STATE" = "awaiting-decision" ] && RC_CHK=0 || RC_CHK=1
+check "and none of the three moved the task out of the stop (got $AD_STATE)" $RC_CHK
+
+echo "== Part 2.3: answering the card is the ONLY exit — approval, with its scope recorded =="
+CS1=$(checksum "$STATE_FILE")
+OUT=$(bash "$SCRIPT" record-approval task-dc --scope "s" --approved-by "a" --deployment-impact no 2>&1); RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1; check "record-approval without --decision exits 2 (got $RC)" $RC_CHK
+echo "$OUT" | grep -qF -- "--decision"; check "that refusal names the missing --decision" $?
+OUT=$(bash "$SCRIPT" record-approval task-dc --decision task-dc-d1 --approved-by "a" --deployment-impact no 2>&1); RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1; check "record-approval without --scope exits 2 (got $RC)" $RC_CHK
+echo "$OUT" | grep -qF -- "--scope"; check "that refusal names the missing --scope" $?
+OUT=$(bash "$SCRIPT" record-approval task-dc --decision task-dc-d1 --scope "s" --deployment-impact no 2>&1); RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "record-approval without --approved-by exits 2 — an unattributed approval is the 'conceal failures' pattern (got $RC)" $RC_CHK
+echo "$OUT" | grep -qF -- "--approved-by"; check "that refusal names the missing --approved-by" $?
+OUT=$(bash "$SCRIPT" record-approval task-dc --decision task-dc-d1 --scope "s" --approved-by "a" 2>&1); RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "record-approval without --deployment-impact exits 2 — it is explicit, never inferred (got $RC)" $RC_CHK
+echo "$OUT" | grep -qF -- "--deployment-impact"; check "that refusal names the missing --deployment-impact" $?
+echo "$OUT" | grep -qi "merge approval is not permission"; check "and quotes DESIGN.md's reason for requiring it" $?
+OUT=$(bash "$SCRIPT" record-approval task-dc --decision task-dc-d1 --scope "s" --approved-by "a" --deployment-impact maybe 2>&1); RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "--deployment-impact with a value other than yes/no exits 2 (got $RC)" $RC_CHK
+OUT=$(bash "$SCRIPT" record-approval task-dc --decision "task-dc-d9" --scope "s" --approved-by "a" --deployment-impact no 2>&1); RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "an approval naming the WRONG decision id is refused (exit $RC)" $RC_CHK
+echo "$OUT" | grep -q "task-dc-d1"; check "that refusal names the card the task is actually waiting on" $?
+OUT=$(bash "$SCRIPT" record-approval task-dc --decision task-dc-d1 --scope "s" --approved-by "a" --deployment-impact no --conditions "   " 2>&1); RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "a whitespace-only --conditions is refused (omit the flag to record none) (got $RC)" $RC_CHK
+CS2=$(checksum "$STATE_FILE")
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1
+check "state file byte-for-byte unchanged after all eight rejected approvals" $RC_CHK
+
+AP_OUT=$(bash "$SCRIPT" record-approval task-dc --decision task-dc-d1 \
+  --scope "drop the legacy column in migration 0042 and merge PR 12" \
+  --approved-by "the project owner, in session 2026-09-11" \
+  --deployment-impact no \
+  --conditions "run it in the Thursday 02:00 window and take a snapshot first" 2>&1); RC=$?
+check "a complete approval succeeds (exit $RC)" $RC
+echo "$AP_OUT" | grep -q "RECORDED-APPROVAL task-dc decision=task-dc-d1"; check "its output names the decision it answers" $?
+echo "$AP_OUT" | grep -q "deployment_impact=false"; check "its output states the deployment-impact verdict" $?
+echo "$AP_OUT" | grep -q "state=building"; check "it restores the exact state the card was raised from" $?
+echo "$AP_OUT" | grep -qi "does NOT evaluate conditions"; check "it says outright that it does not evaluate the recorded conditions" $?
+AP_REC=$(bash "$SCRIPT" status task-dc)
+echo "$AP_REC" | jq -e '.state == "building" and .decision_from == null' >/dev/null
+check "the task is back in 'building' and decision_from is cleared" $?
+echo "$AP_REC" | jq -e '.decisions[0].status == "approved" and (.decisions[0].resolved_at != null)' >/dev/null
+check "the card is marked approved and resolved — it no longer looks unanswered" $?
+echo "$AP_REC" | jq -e '(.approvals | length) == 1' >/dev/null; check "exactly one approval is recorded" $?
+echo "$AP_REC" | jq -e '.approvals[0] | .decision_id == "task-dc-d1" and (.scope|length)>0 and (.target_revision|length)>0 and (.approved_by|length)>0 and (.conditions|length)>0' >/dev/null
+check "the approval records decision, scope, target revision, approver and conditions" $?
+echo "$AP_REC" | jq -e '.approvals[0].deployment_impact == false' >/dev/null
+check "deployment_impact is stored as a real JSON boolean, not the string \"no\"" $?
+echo "$AP_REC" | jq -e '.history[-1] | .from == "awaiting-decision" and .to == "building" and .resolution == "approved"' >/dev/null
+check "the resolution is in the task's own history" $?
+
+echo "== Part 2.3: a decision answered NO is recordable, and does not look unanswered =="
+bash "$SCRIPT" record-decision task-dc "${DC_ALL[@]}" >/dev/null 2>&1
+check "a second card can be raised once the first is answered" $?
+CS1=$(checksum "$STATE_FILE")
+OUT=$(bash "$SCRIPT" record-rejection task-dc --decision task-dc-d2 --rejected-by "the project owner" 2>&1); RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1; check "record-rejection without --reason exits 2 (got $RC)" $RC_CHK
+OUT=$(bash "$SCRIPT" record-rejection task-dc --decision task-dc-d2 --reason "no" 2>&1); RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "record-rejection without --rejected-by exits 2 — a rejection is attributed too (got $RC)" $RC_CHK
+OUT=$(bash "$SCRIPT" record-rejection task-dc --decision task-dc-d1 --rejected-by "x" --reason "y" 2>&1); RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "a rejection naming an already-resolved card is refused (exit $RC)" $RC_CHK
+CS2=$(checksum "$STATE_FILE")
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1
+check "state file byte-for-byte unchanged after the rejected rejections" $RC_CHK
+RJ_OUT=$(bash "$SCRIPT" record-rejection task-dc --decision task-dc-d2 \
+  --rejected-by "the project owner" --reason "we are not taking that lock this quarter" 2>&1); RC=$?
+check "a complete rejection succeeds (exit $RC)" $RC
+echo "$RJ_OUT" | grep -q "RECORDED-REJECTION task-dc decision=task-dc-d2"; check "its output names the decision it answers" $?
+echo "$RJ_OUT" | grep -q "state=building"; check "a rejection also restores the state the card was raised from" $?
+RJ_REC=$(bash "$SCRIPT" status task-dc)
+echo "$RJ_REC" | jq -e '.decisions[1].status == "rejected" and (.decisions[1].resolved_at != null)' >/dev/null
+check "the card reads as REJECTED, distinguishable from an unanswered 'open' one" $?
+echo "$RJ_REC" | jq -e '(.rejections | length) == 1 and (.rejections[0].decision_id == "task-dc-d2") and (.rejections[0].reason|length)>0 and (.rejections[0].rejected_by|length)>0' >/dev/null
+check "the rejection is recorded with its reason and who rejected it" $?
+echo "$RJ_REC" | jq -e '(.approvals | length) == 1' >/dev/null
+check "a rejection creates NO approval — the refused option is still not approved" $?
+echo "$RJ_REC" | jq -e '.state == "building"' >/dev/null; check "and the task is back at work" $?
+
+echo "== Part 2.3: ROUTINE REPAIRS PROCEED — the fail -> building path needs no decision card =="
+# This part's acceptance criterion opens with "routine repairs proceed". The
+# danger of adding decision cards is that every repair starts needing one; this
+# asserts the 2.2 path is untouched, end to end, on a task that has never had a
+# card raised against it at all.
+RR_DIR=$(mktemp -d)
+( cd "$RR_DIR" && bash "$SCRIPT" create rr "Routine repair task" --budget 3 && bash "$SCRIPT" start rr ) >/dev/null 2>&1
+RR_OUT=$(cd "$RR_DIR" && bash "$SCRIPT" fail rr --reason "the index build timed out" --hypothesis "the lock timeout is too low" 2>&1); RC=$?
+check "a routine repair still succeeds with no decision card involved (exit $RC)" $RC
+echo "$RR_OUT" | grep -q "REPAIR MAY PROCEED"; check "it still says REPAIR MAY PROCEED" $?
+RR_STATE=$(cd "$RR_DIR" && bash "$SCRIPT" status rr | jq -r '.state')
+[ "$RR_STATE" = "building" ] && RC_CHK=0 || RC_CHK=1
+check "the task went straight back to 'building', not to 'awaiting-decision' (got $RR_STATE)" $RC_CHK
+( cd "$RR_DIR" && bash "$SCRIPT" status rr ) | jq -e '(.decisions | length) == 0 and (.approvals | length) == 0' >/dev/null
+check "no card and no approval were created by the repair path" $?
+( cd "$RR_DIR" && bash "$SCRIPT" fail rr --reason "still slow" --hypothesis "the statement timeout also applies" ) >/dev/null 2>&1
+check "a second routine repair also proceeds untouched" $?
+( cd "$RR_DIR" && bash "$SCRIPT" check rr ) >/dev/null 2>&1
+check "and the task can still be moved to 'checking' afterwards" $?
+rm -rf "$RR_DIR"
+
+echo "== Part 2.3: check-approval's FULL exit-code contract — NONZERO NEVER MEANS APPROVED =="
+# The contract is easy to get backwards, and backwards here means taking an
+# action nobody approved. Every code is asserted distinctly, and every refusal
+# is additionally asserted NOT to print the words that mean permission.
+echo "-- bad usage and unknown task, before any approval exists --"
+CA_OUT=$(bash "$SCRIPT" check-approval task-dc 2>&1); RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1; check "check-approval with no --scope exits 2 (got $RC)" $RC_CHK
+echo "$CA_OUT" | grep -qF -- "--scope"; check "that refusal names the missing --scope" $?
+CA_OUT=$(bash "$SCRIPT" check-approval 2>&1); RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1; check "check-approval with no task id at all exits 2 (got $RC)" $RC_CHK
+echo "$CA_OUT" | grep -q "NONZERO NEVER MEANS APPROVED"; check "even its usage line states the contract" $?
+bash "$SCRIPT" check-approval task-dc --scope "merge" --bogus >/dev/null 2>&1; RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1; check "an unknown option exits 2, it is not ignored (got $RC)" $RC_CHK
+bash "$SCRIPT" check-approval task-dc --scope "   " >/dev/null 2>&1; RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1; check "a whitespace-only --scope exits 2 (got $RC)" $RC_CHK
+CA_OUT=$(bash "$SCRIPT" check-approval no-such-task --scope "anything" 2>&1); RC=$?
+[ "$RC" = "3" ] && RC_CHK=0 || RC_CHK=1
+check "check-approval on an unknown task exits 3, never 0 (got $RC)" $RC_CHK
+echo "$CA_OUT" | grep -q "APPROVAL-COVERS"; RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "and it never prints APPROVAL-COVERS for a task it could not find" $RC_CHK
+CA_NONE_DIR=$(mktemp -d)
+( cd "$CA_NONE_DIR" && bash "$SCRIPT" create n "No-approval task" && bash "$SCRIPT" start n ) >/dev/null 2>&1
+CA_OUT=$(cd "$CA_NONE_DIR" && bash "$SCRIPT" check-approval n --scope "merge PR 12" 2>&1); RC=$?
+[ "$RC" = "1" ] && RC_CHK=0 || RC_CHK=1
+check "a task with NO approvals at all exits 1 (got $RC)" $RC_CHK
+echo "$CA_OUT" | grep -q "NOT-COVERED"; check "and says NOT-COVERED" $?
+rm -rf "$CA_NONE_DIR"
+
+echo "-- the real contract, inside a git repository so revisions are real --"
+if ! command -v git >/dev/null 2>&1; then
+  echo "  SKIP: git not on PATH — check-approval's revision comparison needs it"
+else
+  CA_DIR=$(mktemp -d)
+  ( cd "$CA_DIR" && git init -q && git config user.email t@t.test && git config user.name t ) >/dev/null 2>&1
+  echo ".claude/state/" > "$CA_DIR/.gitignore"
+  echo "base content" > "$CA_DIR/app.txt"
+  ( cd "$CA_DIR" && git add .gitignore app.txt && git commit -qm init ) >/dev/null 2>&1
+  ( cd "$CA_DIR" && bash "$SCRIPT" create ca "Approval task" && bash "$SCRIPT" start ca \
+    && bash "$SCRIPT" record-decision ca --blocked "b" --why "w" --recommend "r" \
+         --options "o" --impact "i" --question "q" \
+    && bash "$SCRIPT" record-approval ca --decision ca-d1 \
+         --scope "merge PR 12" --approved-by "the project owner" --deployment-impact no \
+         --conditions "squash, do not rebase" ) >/dev/null 2>&1
+  CA_SETUP=$(cd "$CA_DIR" && bash "$SCRIPT" status ca | jq -r '.state')
+  [ "$CA_SETUP" = "building" ] && RC_CHK=0 || RC_CHK=1
+  check "fixture: the approved task is back in 'building' (got $CA_SETUP)" $RC_CHK
+
+  echo "-- EXIT 0: an in-scope action at the approved revision --"
+  CA_OUT=$(cd "$CA_DIR" && bash "$SCRIPT" check-approval ca --scope "merge PR 12" 2>&1); RC=$?
+  [ "$RC" = "0" ] && RC_CHK=0 || RC_CHK=1; check "an in-scope, non-deployment action exits 0 (got $RC)" $RC_CHK
+  echo "$CA_OUT" | grep -q "APPROVAL-COVERS ca"; check "its output says APPROVAL-COVERS" $?
+  echo "$CA_OUT" | grep -qF "squash, do not rebase"; check "it prints the recorded conditions back verbatim" $?
+  echo "$CA_OUT" | grep -qi "cannot evaluate free text"; check "and states plainly that it did not evaluate them" $?
+  CA_OUT=$(cd "$CA_DIR" && bash "$SCRIPT" check-approval ca --scope "  MERGE   pr 12 " 2>&1); RC=$?
+  [ "$RC" = "0" ] && RC_CHK=0 || RC_CHK=1
+  check "scope matching is normalised: case and whitespace differences still match (got $RC)" $RC_CHK
+
+  echo "-- EXIT 4: an action the approval's scope does not cover --"
+  CA_OUT=$(cd "$CA_DIR" && bash "$SCRIPT" check-approval ca --scope "merge PR 12 and drop the audit table" 2>&1); RC=$?
+  [ "$RC" = "4" ] && RC_CHK=0 || RC_CHK=1
+  check "an out-of-scope action exits 4 — a prefix of an approved scope is NOT covered (got $RC)" $RC_CHK
+  echo "$CA_OUT" | grep -q "NOT-COVERED"; check "it says NOT-COVERED" $?
+  echo "$CA_OUT" | grep -q "APPROVAL-COVERS"; RC=$?
+  [ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "and never prints APPROVAL-COVERS for an uncovered scope" $RC_CHK
+  echo "$CA_OUT" | grep -qF '"merge PR 12"'; check "it lists the scopes that ARE recorded, so the caller can see the gap" $?
+
+  echo "-- EXIT 6: DESIGN.md's 'a merge approval is not permission for an unexpected deployment' --"
+  CA_OUT=$(cd "$CA_DIR" && bash "$SCRIPT" check-approval ca --scope "merge PR 12" --deployment 2>&1); RC=$?
+  [ "$RC" = "6" ] && RC_CHK=0 || RC_CHK=1
+  check "the SAME in-scope action, declared as having deployment impact, exits 6 (got $RC)" $RC_CHK
+  echo "$CA_OUT" | grep -qF "A merge approval is not permission for an unexpected deployment"; check "it quotes DESIGN.md verbatim" $?
+  echo "$CA_OUT" | grep -q "APPROVAL-COVERS"; RC=$?
+  [ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "and never prints APPROVAL-COVERS for an uncovered deployment" $RC_CHK
+  echo "-- ...and an approval that DID carry deployment impact covers it --"
+  ( cd "$CA_DIR" && bash "$SCRIPT" record-decision ca --blocked "b2" --why "w2" --recommend "r2" \
+      --options "o2" --impact "i2" --question "q2" \
+    && bash "$SCRIPT" record-approval ca --decision ca-d2 --scope "deploy release 3.1 to production" \
+         --approved-by "the project owner" --deployment-impact yes ) >/dev/null 2>&1
+  CA_OUT=$(cd "$CA_DIR" && bash "$SCRIPT" check-approval ca --scope "deploy release 3.1 to production" --deployment 2>&1); RC=$?
+  [ "$RC" = "0" ] && RC_CHK=0 || RC_CHK=1
+  check "CONTROL: a deployment covered by a deployment-impact approval exits 0 — exit 6 above is not vacuous (got $RC)" $RC_CHK
+  CA_OUT=$(cd "$CA_DIR" && bash "$SCRIPT" check-approval ca --scope "merge PR 12" --deployment 2>&1); RC=$?
+  [ "$RC" = "6" ] && RC_CHK=0 || RC_CHK=1
+  check "and the deployment approval does NOT bleed across to the merge-only scope (got $RC)" $RC_CHK
+
+  echo "-- EXIT 5: a REVISION CHANGE invalidates a previously valid approval --"
+  CA_OUT=$(cd "$CA_DIR" && bash "$SCRIPT" check-approval ca --scope "merge PR 12" 2>&1); RC=$?
+  [ "$RC" = "0" ] && RC_CHK=0 || RC_CHK=1
+  check "PRECONDITION: the approval is still valid before the code moves (got $RC)" $RC_CHK
+  echo "someone edited the app while nobody was looking" >> "$CA_DIR/app.txt"
+  CA_OUT=$(cd "$CA_DIR" && bash "$SCRIPT" check-approval ca --scope "merge PR 12" 2>&1); RC=$?
+  [ "$RC" = "5" ] && RC_CHK=0 || RC_CHK=1
+  check "THE SAME command now exits 5 because the code changed under it (got $RC)" $RC_CHK
+  echo "$CA_OUT" | grep -qi "THE CODE HAS CHANGED"; check "it says the code changed" $?
+  echo "$CA_OUT" | grep -q "revision when approved:"; check "it names BOTH revisions, so the drift is auditable" $?
+  echo "$CA_OUT" | grep -q "APPROVAL-COVERS"; RC=$?
+  [ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "and never prints APPROVAL-COVERS for a stale approval" $RC_CHK
+  echo "-- ...and a fresh approval at the new revision restores coverage --"
+  ( cd "$CA_DIR" && bash "$SCRIPT" record-decision ca --blocked "b3" --why "w3" --recommend "r3" \
+      --options "o3" --impact "i3" --question "q3" \
+    && bash "$SCRIPT" record-approval ca --decision ca-d3 --scope "merge PR 12" \
+         --approved-by "the project owner" --deployment-impact no ) >/dev/null 2>&1
+  CA_OUT=$(cd "$CA_DIR" && bash "$SCRIPT" check-approval ca --scope "merge PR 12" 2>&1); RC=$?
+  [ "$RC" = "0" ] && RC_CHK=0 || RC_CHK=1
+  check "CONTROL: re-approved at the current revision, the same action exits 0 again (got $RC)" $RC_CHK
+  rm -rf "$CA_DIR"
+
+  echo "-- ORDER-INDEPENDENCE: a newer, narrower approval does NOT shadow an older one that still covers the action --"
+  # REGRESSION GUARD for require_approval_verdict's selection rule. The
+  # verdict is chosen as "the first FULLY VALID approval", not "the most
+  # recent record" -- so whether an action is covered does not depend on what
+  # was approved after it, only on whether SOME record matches on all three of
+  # scope, revision and deployment impact. A refactor to "take the most
+  # recent" would silently invert that and start refusing actions that are
+  # genuinely approved. Nothing else in this file pins it, so this does.
+  CAO_DIR=$(mktemp -d)
+  ( cd "$CAO_DIR" && git init -q && git config user.email t@t.test && git config user.name t ) >/dev/null 2>&1
+  echo ".claude/state/" > "$CAO_DIR/.gitignore"
+  echo "base content" > "$CAO_DIR/app.txt"
+  ( cd "$CAO_DIR" && git add .gitignore app.txt && git commit -qm init ) >/dev/null 2>&1
+  # Two approvals, SAME task, SAME scope, SAME revision (nothing touches the
+  # tree between them). Older carries deployment impact; newer does not.
+  ( cd "$CAO_DIR" && bash "$SCRIPT" create ord "Ordering task" && bash "$SCRIPT" start ord \
+    && bash "$SCRIPT" record-decision ord --blocked "b1" --why "w1" --recommend "r1" \
+         --options "o1" --impact "i1" --question "q1" \
+    && bash "$SCRIPT" record-approval ord --decision ord-d1 \
+         --scope "merge PR 12 and deploy to staging" --approved-by "owner A" --deployment-impact yes \
+    && bash "$SCRIPT" record-decision ord --blocked "b2" --why "w2" --recommend "r2" \
+         --options "o2" --impact "i2" --question "q2" \
+    && bash "$SCRIPT" record-approval ord --decision ord-d2 \
+         --scope "merge PR 12 and deploy to staging" --approved-by "owner B" --deployment-impact no ) >/dev/null 2>&1
+  CAO_SETUP=$(cd "$CAO_DIR" && bash "$SCRIPT" status ord | jq -r '[.approvals[] | .decision_id + ":" + (.deployment_impact | tostring)] | join(",")')
+  [ "$CAO_SETUP" = "ord-d1:true,ord-d2:false" ] && RC_CHK=0 || RC_CHK=1
+  check "fixture: two same-scope approvals recorded oldest-first, ord-d1 with deployment impact and ord-d2 without (got $CAO_SETUP)" $RC_CHK
+  CAO_SETUP=$(cd "$CAO_DIR" && bash "$SCRIPT" status ord | jq -r '[.approvals[] | .target_revision] | unique | length')
+  [ "$CAO_SETUP" = "1" ] && RC_CHK=0 || RC_CHK=1
+  check "fixture: both approvals were granted at the SAME revision, so recency is the only difference (got $CAO_SETUP distinct)" $RC_CHK
+
+  CAO_OUT=$(cd "$CAO_DIR" && bash "$SCRIPT" check-approval ord --scope "merge PR 12 and deploy to staging" --deployment 2>&1); RC=$?
+  [ "$RC" = "0" ] && RC_CHK=0 || RC_CHK=1
+  check "a deployment covered ONLY by the OLDER approval still exits 0 — the newer, narrower record does not shadow it (got $RC)" $RC_CHK
+  echo "$CAO_OUT" | grep -q "APPROVAL-COVERS ord"; check "its output says APPROVAL-COVERS" $?
+  echo "$CAO_OUT" | grep -qE "decision: +ord-d1"; check "and it names ord-d1, the OLDER decision, as the one that covers the action" $?
+  echo "$CAO_OUT" | grep -qE "decision: +ord-d2"; RC=$?
+  [ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+  check "it does NOT report the newer ord-d2 as the covering decision" $RC_CHK
+
+  echo "-- ...and when NOTHING is valid, the nearest miss reported is the MOST RECENT approval --"
+  # Same fixture, tree now dirty, so BOTH approvals are revision-stale and
+  # fail for the identical reason -- recency is the only thing that can pick
+  # between them. Documented behaviour: the nearest miss is the one whose
+  # failure a human actually needs to hear about, i.e. the latest.
+  echo "someone edited the app while nobody was looking" >> "$CAO_DIR/app.txt"
+  CAO_OUT=$(cd "$CAO_DIR" && bash "$SCRIPT" check-approval ord --scope "merge PR 12 and deploy to staging" 2>&1); RC=$?
+  [ "$RC" = "5" ] && RC_CHK=0 || RC_CHK=1
+  check "with both approvals stale the same action exits 5 (got $RC)" $RC_CHK
+  echo "$CAO_OUT" | grep -qF "decision ord-d2"; check "the nearest miss named is ord-d2, the MOST RECENT approval" $?
+  echo "$CAO_OUT" | grep -qF "decision ord-d1"; RC=$?
+  [ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+  check "and not the oldest one" $RC_CHK
+  echo "$CAO_OUT" | grep -q "APPROVAL-COVERS"; RC=$?
+  [ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+  check "and no route through this fixture ever prints APPROVAL-COVERS once every approval is stale" $RC_CHK
+  rm -rf "$CAO_DIR"
+fi
+
+echo "-- EXIT 7: outside version control the revision CANNOT be established, and that is not approval --"
+# compute_snapshot returns the same placeholder for every possible state of the
+# code here, so comparing it against itself proves nothing. Reading that match
+# as "unchanged" would be this project's defect class in the one place where
+# "condition satisfied" authorises an action.
+CA7_OUT=$(bash "$SCRIPT" check-approval task-dc --scope "drop the legacy column in migration 0042 and merge PR 12" 2>&1); RC=$?
+[ "$RC" = "7" ] && RC_CHK=0 || RC_CHK=1
+check "an in-scope approval in a NON-GIT project exits 7, not 0 (got $RC)" $RC_CHK
+echo "$CA7_OUT" | grep -q "UNDETERMINED"; check "it says UNDETERMINED rather than claiming a verdict" $?
+echo "$CA7_OUT" | grep -q "no-git-repository"; check "it names the placeholder that made the comparison impossible" $?
+echo "$CA7_OUT" | grep -q "APPROVAL-COVERS"; RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "and NEVER prints APPROVAL-COVERS when it could not establish the revision" $RC_CHK
+
+echo "== Part 2.3: an awaiting-decision task cannot be completed via complete-gate.sh =="
+# Same design as the paused-task and needs-reassessment gate tests above: drive
+# BOTH tasks identically to genuinely gate-passing evidence and change only ONE
+# thing about one of them. Without the control, a gate refusal would prove
+# nothing — it could just as easily mean the evidence setup was broken. The gate
+# needs no change of its own for this: its check 1 requires state 'checking',
+# and 'awaiting-decision' is not 'checking'. That is asserted here rather than
+# assumed.
+if ! command -v git >/dev/null 2>&1; then
+  echo "  SKIP: git not on PATH — complete-gate.sh's staleness check needs it"
+else
+  DGATE_DIR=$(mktemp -d)
+  ( cd "$DGATE_DIR" && git init -q && git config user.email t@t.test && git config user.name t ) >/dev/null 2>&1
+  echo ".claude/state/" > "$DGATE_DIR/.gitignore"
+  echo "base content" > "$DGATE_DIR/tracked.txt"
+  ( cd "$DGATE_DIR" && git add .gitignore tracked.txt && git commit -qm init ) >/dev/null 2>&1
+  for t in dgate-ctrl dgate-stopped; do
+    ( cd "$DGATE_DIR" && bash "$SCRIPT" create "$t" "Gate task $t" \
+      && bash "$SCRIPT" start "$t" && bash "$SCRIPT" check "$t" ) >/dev/null 2>&1
+    echo "real evidence output for $t" > "$DGATE_DIR/$t-output.txt"
+    echo "real artifact for $t" > "$DGATE_DIR/$t-artifact.txt"
+  done
+  for t in dgate-ctrl dgate-stopped; do
+    ( cd "$DGATE_DIR" && bash "$SCRIPT" record-evidence "$t" --command "bash tests/task-state-smoke.sh" \
+      --exit-code 0 --tests-total 9 --tests-skipped 0 \
+      --output-file "$t-output.txt" --artifact "$t-artifact.txt" ) >/dev/null 2>&1
+  done
+
+  echo "-- control: an identically-prepared task with no open card passes the gate --"
+  DCTRL_OUT=$(cd "$DGATE_DIR" && bash "$GATE" dgate-ctrl 2>&1); RC=$?
+  check "control task's evidence is genuinely gate-passing (exit $RC)" $RC
+  echo "$DCTRL_OUT" | grep -q "GATE PASS"; check "control task prints GATE PASS" $?
+  DCTRL_STATE=$(cd "$DGATE_DIR" && bash "$SCRIPT" status dgate-ctrl | jq -r '.state')
+  [ "$DCTRL_STATE" = "done" ] && RC_CHK=0 || RC_CHK=1; check "control task reached 'done' (got $DCTRL_STATE)" $RC_CHK
+
+  echo "-- the card-stopped task, same evidence, is refused --"
+  ( cd "$DGATE_DIR" && bash "$SCRIPT" record-decision dgate-stopped --blocked "the acceptance text is ambiguous" \
+      --why "read it twice and asked the verifier; both readings are defensible" \
+      --recommend "take the narrower reading, because the wider one adds a week" \
+      --options "narrow: ships now, may need a follow-up. wide: complete, ships late." \
+      --impact "delivery slips a week under the wide reading" \
+      --question "Narrow reading now, or wide reading next week?" ) >/dev/null 2>&1
+  DSTOP_STATE=$(cd "$DGATE_DIR" && bash "$SCRIPT" status dgate-stopped | jq -r '.state')
+  [ "$DSTOP_STATE" = "awaiting-decision" ] && RC_CHK=0 || RC_CHK=1
+  check "dgate-stopped really is in awaiting-decision before the gate runs (got $DSTOP_STATE)" $RC_CHK
+  DGATE_OUT=$(cd "$DGATE_DIR" && bash "$GATE" dgate-stopped 2>&1); RC=$?
+  [ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1; check "complete-gate.sh refuses an awaiting-decision task (exit $RC)" $RC_CHK
+  echo "$DGATE_OUT" | grep -q "GATE FAIL"; check "gate output says GATE FAIL" $?
+  echo "$DGATE_OUT" | grep -q "awaiting-decision"; check "gate failure names the offending state (awaiting-decision)" $?
+  DAFTER_STATE=$(cd "$DGATE_DIR" && bash "$SCRIPT" status dgate-stopped | jq -r '.state')
+  [ "$DAFTER_STATE" = "awaiting-decision" ] && RC_CHK=0 || RC_CHK=1
+  check "the refused task is still 'awaiting-decision', not 'done' (got $DAFTER_STATE)" $RC_CHK
+
+  echo "-- and it becomes completable again only once the card is answered --"
+  ( cd "$DGATE_DIR" && bash "$SCRIPT" record-approval dgate-stopped --decision dgate-stopped-d1 \
+      --scope "take the narrower reading of the acceptance text" --approved-by "the project owner" \
+      --deployment-impact no ) >/dev/null 2>&1
+  DREOPEN_STATE=$(cd "$DGATE_DIR" && bash "$SCRIPT" status dgate-stopped | jq -r '.state')
+  [ "$DREOPEN_STATE" = "checking" ] && RC_CHK=0 || RC_CHK=1
+  check "the approval restored 'checking' (got $DREOPEN_STATE)" $RC_CHK
+  DGATE_OUT2=$(cd "$DGATE_DIR" && bash "$GATE" dgate-stopped 2>&1); RC=$?
+  check "the same evidence now passes the gate once the card is answered (exit $RC)" $RC
+  echo "$DGATE_OUT2" | grep -q "GATE PASS"; check "the released task prints GATE PASS on the same evidence" $?
+  DFINAL_STATE=$(cd "$DGATE_DIR" && bash "$SCRIPT" status dgate-stopped | jq -r '.state')
+  [ "$DFINAL_STATE" = "done" ] && RC_CHK=0 || RC_CHK=1
+  check "task independently re-reads as 'done' after the gate passed (got $DFINAL_STATE)" $RC_CHK
+  rm -rf "$DGATE_DIR"
+fi
+
+echo "== Part 2.3: 20 concurrent record-decision calls on one task raise exactly ONE card =="
+# The card-raising test-and-freeze is a read-modify-write, the same shape that
+# raced before the lock existed. Two cards open at once would break the
+# invariant require_open_decision depends on ("the latest decisions entry is the
+# open one"), and an approval would then resolve the wrong question. Exactly one
+# caller may win; the other nineteen must be refused, and the state file must
+# hold exactly one decision.
+if command -v timeout >/dev/null 2>&1; then
+  CONC_D_DIR=$(mktemp -d)
+  ( cd "$CONC_D_DIR" && bash "$SCRIPT" create d-conc "Concurrent decision task" \
+    && bash "$SCRIPT" start d-conc ) >/dev/null 2>&1
+  CONC_D_OUT=$(timeout 60 bash -c '
+    SCRIPT="$1"; DIR="$2"; N="$3"
+    PIDS=()
+    for i in $(seq 1 "$N"); do
+      ( cd "$DIR" && bash "$SCRIPT" record-decision d-conc --blocked "blocked $i" --why "why $i" \
+          --recommend "recommend $i" --options "options $i" --impact "impact $i" \
+          --question "question $i" >/dev/null 2>&1 && echo WON ) &
+      PIDS+=("$!")
+    done
+    for pid in "${PIDS[@]}"; do wait "$pid"; done
+  ' _ "$SCRIPT" "$CONC_D_DIR" 20)
+  RC=$?
+  [ "$RC" != "124" ] && RC_CHK=0 || RC_CHK=1
+  check "20 concurrent record-decision calls complete without deadlocking on the lock (exit $RC, 124=timeout)" $RC_CHK
+  CONC_D_WON=$(echo "$CONC_D_OUT" | grep -c "WON")
+  [ "$CONC_D_WON" = "1" ] && RC_CHK=0 || RC_CHK=1
+  check "exactly ONE of the 20 succeeded — the other 19 were refused (got $CONC_D_WON)" $RC_CHK
+  CONC_D_LEN=$(jq -r '.tasks["d-conc"].decisions | length' "$CONC_D_DIR/.claude/state/team-tasks.json" 2>/dev/null)
+  [ "$CONC_D_LEN" = "1" ] && RC_CHK=0 || RC_CHK=1
+  check "exactly one decision card was appended, none clobbered (got ${CONC_D_LEN:-0})" $RC_CHK
+  CONC_D_OPEN=$(jq -r '[.tasks["d-conc"].decisions[] | select(.status == "open")] | length' "$CONC_D_DIR/.claude/state/team-tasks.json" 2>/dev/null)
+  [ "$CONC_D_OPEN" = "1" ] && RC_CHK=0 || RC_CHK=1
+  check "exactly one card is OPEN — the invariant require_open_decision relies on holds (got ${CONC_D_OPEN:-0})" $RC_CHK
+  CONC_D_STATE=$(jq -r '.tasks["d-conc"].state' "$CONC_D_DIR/.claude/state/team-tasks.json" 2>/dev/null)
+  [ "$CONC_D_STATE" = "awaiting-decision" ] && RC_CHK=0 || RC_CHK=1
+  check "the task is in awaiting-decision after the race (got ${CONC_D_STATE:-none})" $RC_CHK
+  rm -rf "$CONC_D_DIR"
+else
+  echo "  SKIP: 'timeout' not on PATH, cannot safely bound the concurrent-decision test"
+fi
+
 echo "== FAIL-CLOSED READS: a state field that is PRESENT but wrong-typed REFUSES, it never degrades a guard =="
 # ONE DEFECT, NOT MANY. Three consecutive reviews found the same shape in a
 # different field each time (attempts_used/budget, then the gate's
@@ -1626,6 +2165,11 @@ hs_building() { bash "$SCRIPT" create c "Hardening fixture"; bash "$SCRIPT" star
 # that can tell "the guard refused because the history is unreadable" apart from
 # "the guard refused because this task never reached checking".
 hs_checked_stopped() { bash "$SCRIPT" create c "Hardening fixture" --budget 1; bash "$SCRIPT" start c; bash "$SCRIPT" check c; bash "$SCRIPT" fail c --reason "r1" --hypothesis "theory one"; }
+# Part 2.3 fixtures: a task frozen on an OPEN decision card, and the same task
+# once that card has been approved (so there is a real approval record to
+# corrupt).
+hs_awaiting()  { bash "$SCRIPT" create c "Hardening fixture"; bash "$SCRIPT" start c; bash "$SCRIPT" record-decision c --blocked "b" --why "w" --recommend "r" --options "o" --impact "i" --question "q"; }
+hs_approved()  { hs_awaiting; bash "$SCRIPT" record-approval c --decision c-d1 --scope "merge PR 12" --approved-by "owner" --deployment-impact no --conditions "squash, do not rebase"; }
 
 # harden_dir <setup-fn> <jq-corruption-program> -> prints an isolated dir whose
 # state file has been hand-corrupted. Hand-editing is the only way to
@@ -1867,6 +2411,158 @@ check "CONTROL: its output reports the restored state (got: $EVC_OUT)" $?
 jq -e '.tasks.c.state == "checking"' "$EVC_DIR/$STATE_FILE" >/dev/null
 check "CONTROL: and the task really is back in 'checking'" $?
 rm -rf "$EVC_DIR"
+
+echo "-- Part 2.3: the decision/approval fields, held to the same fail-closed rule as everything above --"
+# These are new fields, so they are new opportunities for the SAME defect: a
+# value that cannot be parsed becoming one that means "the condition was not
+# met". The two that matter most are called out at their own cases below --
+# decision_from (a completion bypass, exactly as blocked_from was) and
+# deployment_impact (where a non-boolean read as falsy would authorise an
+# unapproved deployment, which is the specific thing DESIGN.md forbids).
+harden_case "decisions=true (approve)" hs_awaiting '.tasks.c.decisions = true' \
+  decisions 1 record-approval c --decision c-d1 --scope "merge PR 12" --approved-by "owner" --deployment-impact no
+harden_case "decisions holds a non-object entry (approve)" hs_awaiting '.tasks.c.decisions = [["not an object"]]' \
+  decisions 1 record-approval c --decision c-d1 --scope "merge PR 12" --approved-by "owner" --deployment-impact no
+harden_case "decisions is empty on an awaiting-decision task" hs_awaiting '.tasks.c.decisions = []' \
+  decisions 1 record-approval c --decision c-d1 --scope "merge PR 12" --approved-by "owner" --deployment-impact no
+harden_case "decision_id=null" hs_awaiting '.tasks.c.decisions[-1].decision_id = null' \
+  decision_id 1 record-approval c --decision c-d1 --scope "merge PR 12" --approved-by "owner" --deployment-impact no
+harden_case "decision_id is a number" hs_awaiting '.tasks.c.decisions[-1].decision_id = 1' \
+  decision_id 1 record-approval c --decision c-d1 --scope "merge PR 12" --approved-by "owner" --deployment-impact no
+harden_case "status=null" hs_awaiting '.tasks.c.decisions[-1].status = null' \
+  status 1 record-approval c --decision c-d1 --scope "merge PR 12" --approved-by "owner" --deployment-impact no
+harden_case "status is missing" hs_awaiting 'del(.tasks.c.decisions[-1].status)' \
+  status 1 record-approval c --decision c-d1 --scope "merge PR 12" --approved-by "owner" --deployment-impact no
+harden_case "status is already \"approved\" on a frozen task" hs_awaiting '.tasks.c.decisions[-1].status = "approved"' \
+  status 1 record-approval c --decision c-d1 --scope "merge PR 12" --approved-by "owner" --deployment-impact no
+harden_case "decisions=true (reject)" hs_awaiting '.tasks.c.decisions = true' \
+  decisions 1 record-rejection c --decision c-d1 --rejected-by "owner" --reason "no"
+harden_case "rejections=true" hs_awaiting '.tasks.c.rejections = true' \
+  rejections 1 record-rejection c --decision c-d1 --rejected-by "owner" --reason "no"
+harden_case "approvals=true (the array record-approval appends to)" hs_awaiting '.tasks.c.approvals = true' \
+  approvals 1 record-approval c --decision c-d1 --scope "merge PR 12" --approved-by "owner" --deployment-impact no
+harden_case "decisions=true blocks raising a card too" hs_building '.tasks.c.decisions = true' \
+  decisions 1 record-decision c --blocked b --why w --recommend r --options o --impact i --question q
+
+echo "-- decision_from: an unvalidated restore target is a COMPLETION BYPASS, exactly as blocked_from was --"
+# unblock restored whatever string it found, so a blocked_from hand-set to
+# "done" moved the task straight to done, past checking and past
+# complete-gate.sh. decision_from is the same kind of field and gets the same
+# enum guard; these prove it, in BOTH directions of resolution.
+harden_case "decision_from=\"done\" (completion bypass, approve)" hs_awaiting '.tasks.c.decision_from = "done"' \
+  decision_from 1 record-approval c --decision c-d1 --scope "merge PR 12" --approved-by "owner" --deployment-impact no
+harden_case "decision_from=\"done\" (completion bypass, reject)" hs_awaiting '.tasks.c.decision_from = "done"' \
+  decision_from 1 record-rejection c --decision c-d1 --rejected-by "owner" --reason "no"
+harden_case "decision_from=true" hs_awaiting '.tasks.c.decision_from = true' \
+  decision_from 1 record-approval c --decision c-d1 --scope "merge PR 12" --approved-by "owner" --deployment-impact no
+harden_case "decision_from=[\"building\"]" hs_awaiting '.tasks.c.decision_from = ["building"]' \
+  decision_from 1 record-approval c --decision c-d1 --scope "merge PR 12" --approved-by "owner" --deployment-impact no
+# And the state really did not move.
+DF_DIR=$(harden_dir hs_awaiting '.tasks.c.decision_from = "done"')
+( cd "$DF_DIR" && bash "$SCRIPT" record-approval c --decision c-d1 --scope "merge PR 12" \
+  --approved-by "owner" --deployment-impact no ) >/dev/null 2>&1
+jq -e '.tasks.c.state == "awaiting-decision"' "$DF_DIR/$STATE_FILE" >/dev/null
+check "the task is still awaiting-decision after the refused approval — it did not reach 'done'" $?
+rm -rf "$DF_DIR"
+
+echo "-- check-approval's own read: a corrupt approvals array must NEVER become permission --"
+# check-approval's refusals exit 3, never 0. Exit 0 is the one code that means
+# PROCEED, so the assertion that matters most in this block is the negative one:
+# no corrupt input produces it, and none of them prints APPROVAL-COVERS either.
+harden_case "approvals=true (check)" hs_approved '.tasks.c.approvals = true' \
+  approvals 3 check-approval c --scope "merge PR 12"
+harden_case "approvals holds a non-object entry (check)" hs_approved \
+  '.tasks.c.approvals = ["junk"] + .tasks.c.approvals' \
+  approvals 3 check-approval c --scope "merge PR 12"
+harden_case "an approval's scope is null (check)" hs_approved '.tasks.c.approvals[0].scope = null' \
+  approvals 3 check-approval c --scope "merge PR 12"
+harden_case "an approval's target_revision is null (check)" hs_approved '.tasks.c.approvals[0].target_revision = null' \
+  approvals 3 check-approval c --scope "merge PR 12"
+harden_case "an approval's target_revision is missing (check)" hs_approved 'del(.tasks.c.approvals[0].target_revision)' \
+  approvals 3 check-approval c --scope "merge PR 12"
+harden_case "an approval's approved_by is null (check)" hs_approved '.tasks.c.approvals[0].approved_by = null' \
+  approvals 3 check-approval c --scope "merge PR 12"
+harden_case "an approval's decision_id is null (check)" hs_approved '.tasks.c.approvals[0].decision_id = null' \
+  approvals 3 check-approval c --scope "merge PR 12"
+harden_case "an approval's conditions is a number (check)" hs_approved '.tasks.c.approvals[0].conditions = 42' \
+  approvals 3 check-approval c --scope "merge PR 12"
+# deployment_impact gets its own trio. A non-boolean here is the one corruption
+# whose "obvious" degradation (treat anything that is not true as false) would
+# authorise precisely the unexpected deployment DESIGN.md names.
+harden_case "deployment_impact is the STRING \"no\"" hs_approved '.tasks.c.approvals[0].deployment_impact = "no"' \
+  approvals 3 check-approval c --scope "merge PR 12" --deployment
+harden_case "deployment_impact=null" hs_approved '.tasks.c.approvals[0].deployment_impact = null' \
+  approvals 3 check-approval c --scope "merge PR 12" --deployment
+harden_case "deployment_impact is missing" hs_approved 'del(.tasks.c.approvals[0].deployment_impact)' \
+  approvals 3 check-approval c --scope "merge PR 12" --deployment
+# The direction that would actually AUTHORISE a deployment: a truthy non-boolean.
+# Under any truthiness-based read (`.deployment_impact | not`, `// false`) the
+# string "yes" and the number 1 both sail past the deployment guard and the
+# approval reads as covering a deployment it never covered. The type check is
+# what makes that impossible; these two prove the type check is load-bearing in
+# the dangerous direction, not only the harmless one.
+harden_case "deployment_impact is the STRING \"yes\"" hs_approved '.tasks.c.approvals[0].deployment_impact = "yes"' \
+  approvals 3 check-approval c --scope "merge PR 12" --deployment
+harden_case "deployment_impact is the number 1" hs_approved '.tasks.c.approvals[0].deployment_impact = 1' \
+  approvals 3 check-approval c --scope "merge PR 12" --deployment
+# Explicitly: NOT exit 0, and the words that mean permission must not appear.
+CAX_DIR=$(harden_dir hs_approved '.tasks.c.approvals = ["junk"] + .tasks.c.approvals')
+CAX_OUT=$(cd "$CAX_DIR" && bash "$SCRIPT" check-approval c --scope "merge PR 12" 2>&1); CAX_RC=$?
+[ "$CAX_RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "a corrupt approvals array NEVER exits 0 from check-approval (exit $CAX_RC — 0 would mean PROCEED)" $RC_CHK
+echo "$CAX_OUT" | grep -q "APPROVAL-COVERS"; RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "and it never prints APPROVAL-COVERS for a record it could not read" $RC_CHK
+rm -rf "$CAX_DIR"
+# A corrupt TASK RECORD reaches check-approval through the shared state read,
+# and must land on 3 (undeterminable), never on 0.
+harden_case "the task record is not an object (check-approval)" hs_approved '.tasks.c = "building"' \
+  state 3 check-approval c --scope "merge PR 12"
+
+echo "-- Part 2.3 PASSING CONTROLS: every command above SUCCEEDS on an intact record --"
+DCTL_DIR=$(mktemp -d)
+( cd "$DCTL_DIR" && hs_awaiting ) >/dev/null 2>&1
+( cd "$DCTL_DIR" && bash "$SCRIPT" record-approval c --decision c-d1 --scope "merge PR 12" \
+  --approved-by "owner" --deployment-impact no ) >/dev/null 2>&1
+check "CONTROL: record-approval succeeds on an intact awaiting-decision record" $?
+jq -e '.tasks.c.state == "building" and .tasks.c.decisions[0].status == "approved"' "$DCTL_DIR/$STATE_FILE" >/dev/null
+check "CONTROL: it restored 'building' and marked the card approved" $?
+( cd "$DCTL_DIR" && bash "$SCRIPT" check-approval c --scope "merge PR 12" ) >/dev/null 2>&1; RC=$?
+# The control dir is not a git repository, so the honest answer here is 7
+# (revision undeterminable), NOT 0 -- asserting 0 would be asserting the very
+# bug this contract exists to prevent. What the control proves is that the
+# command runs to a real verdict on an intact record rather than refusing at 3.
+[ "$RC" = "7" ] && RC_CHK=0 || RC_CHK=1
+check "CONTROL: check-approval reaches a real verdict (7, non-git) on an intact record, not a corruption refusal (got $RC)" $RC_CHK
+( cd "$DCTL_DIR" && bash "$SCRIPT" record-decision c --blocked b --why w --recommend r \
+  --options o --impact i --question q ) >/dev/null 2>&1
+check "CONTROL: record-decision succeeds" $?
+( cd "$DCTL_DIR" && bash "$SCRIPT" record-rejection c --decision c-d2 --rejected-by "owner" --reason "not this quarter" ) >/dev/null 2>&1
+check "CONTROL: record-rejection succeeds" $?
+jq -e '.tasks.c.state == "building" and .tasks.c.decisions[1].status == "rejected"' "$DCTL_DIR/$STATE_FILE" >/dev/null
+check "CONTROL: the rejection restored 'building' and marked the card rejected" $?
+rm -rf "$DCTL_DIR"
+
+echo "-- Part 2.3 LEGACY RECORDS: a task created before these fields existed still works --"
+DLEG_DIR=$(mktemp -d)
+( cd "$DLEG_DIR" && bash "$SCRIPT" create c "Legacy-shaped task" && bash "$SCRIPT" start c ) >/dev/null 2>&1
+jq 'del(.tasks.c.decisions, .tasks.c.approvals, .tasks.c.rejections, .tasks.c.decision_from)' \
+  "$DLEG_DIR/$STATE_FILE" > "$DLEG_DIR/l.tmp" && mv "$DLEG_DIR/l.tmp" "$DLEG_DIR/$STATE_FILE"
+jq -e '(.tasks.c | has("decisions") | not) and (.tasks.c | has("approvals") | not) and (.tasks.c | has("decision_from") | not)' \
+  "$DLEG_DIR/$STATE_FILE" >/dev/null
+check "precondition: the legacy-shaped record genuinely has none of the Part 2.3 keys" $?
+( cd "$DLEG_DIR" && bash "$SCRIPT" check-approval c --scope "merge PR 12" ) >/dev/null 2>&1; RC=$?
+[ "$RC" = "1" ] && RC_CHK=0 || RC_CHK=1
+check "LEGACY: an absent approvals array answers NOT COVERED (exit 1), never 0 (got $RC)" $RC_CHK
+( cd "$DLEG_DIR" && bash "$SCRIPT" record-decision c --blocked b --why w --recommend r \
+  --options o --impact i --question q ) >/dev/null 2>&1
+check "LEGACY: record-decision still creates the decisions array from nothing" $?
+( cd "$DLEG_DIR" && bash "$SCRIPT" record-approval c --decision c-d1 --scope "merge PR 12" \
+  --approved-by "owner" --deployment-impact no ) >/dev/null 2>&1
+check "LEGACY: record-approval still creates the approvals array from nothing" $?
+jq -e '.tasks.c.state == "building" and (.tasks.c.approvals | length) == 1' "$DLEG_DIR/$STATE_FILE" >/dev/null
+check "LEGACY: and the record now carries a proper approval and the restored state" $?
+rm -rf "$DLEG_DIR"
 
 echo "-- PASSING CONTROLS: every command above SUCCEEDS on an intact record, so none of the refusals is vacuous --"
 CTRL_DIR=$(mktemp -d)
