@@ -2640,6 +2640,601 @@ echo "$HLEG_RESUME" | grep -qF "NEXT ACTION: pick this back up"
 check "LEGACY: and still restores the exact next action" $?
 rm -rf "$HLEG_DIR"
 
+echo "== Part 2.4: declared file ownership — overlapping vs non-overlapping declarations across ACTIVE tasks =="
+# The literal acceptance clause: "concurrent ownership conflicts are caught".
+# Both directions are asserted, because a check that only ever says "conflict"
+# discriminates nothing.
+OV_DIR=$(mktemp -d)
+(
+  cd "$OV_DIR" || exit 1
+  bash "$SCRIPT" create own-a "Owns scripts" --owns "scripts/team/*"
+  bash "$SCRIPT" create own-b "Owns docs" --owns "docs/rebuild/*.md"
+  bash "$SCRIPT" create own-c "Owns one script file" --owns "scripts/team/task-state.sh"
+) >/dev/null 2>&1
+jq -e '.tasks["own-a"].owns == ["scripts/team/*"]' "$OV_DIR/$STATE_FILE" >/dev/null
+check "create --owns records the declared patterns verbatim" $?
+jq -e '.tasks["own-a"].ownership_declarations | length == 1 and .[0].declared_via == "create"' "$OV_DIR/$STATE_FILE" >/dev/null
+check "create --owns also appends the first ownership_declarations entry" $?
+OUT=$(cd "$OV_DIR" && bash "$SCRIPT" check-overlap own-b 2>&1); RC=$?
+[ "$RC" = "0" ] && RC_CHK=0 || RC_CHK=1
+check "NON-OVERLAPPING declarations report NO CONFLICT (exit $RC)" $RC_CHK
+echo "$OUT" | grep -q "NO-OVERLAP own-b"; check "and say so in the output" $?
+OUT=$(cd "$OV_DIR" && bash "$SCRIPT" check-overlap own-a 2>&1); RC=$?
+[ "$RC" = "1" ] && RC_CHK=0 || RC_CHK=1
+check "OVERLAPPING declarations report a CONFLICT (exit $RC — 1, not 0)" $RC_CHK
+echo "$OUT" | grep -q "CONFLICT own-a"; check "the conflict output leads with CONFLICT" $?
+echo "$OUT" | grep -qF 'task "own-c"'; check "the conflict names the other task (own-c)" $?
+echo "$OUT" | grep -qF '"scripts/team/*"  overlaps  "scripts/team/task-state.sh"'
+check "the conflict names BOTH offending patterns, not just the task" $?
+echo "$OUT" | grep -q "own-b"; RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "the conflict does NOT name the non-overlapping task (own-b)" $RC_CHK
+# check-overlap is read-only: it must not touch the state file at all.
+CS1=$(checksum "$OV_DIR/$STATE_FILE")
+(cd "$OV_DIR" && bash "$SCRIPT" check-overlap own-a) >/dev/null 2>&1
+CS2=$(checksum "$OV_DIR/$STATE_FILE")
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1
+check "check-overlap is READ-ONLY — the state file is byte-for-byte unchanged" $RC_CHK
+
+echo "-- a DONE task's declaration no longer blocks anyone; every other state still does --"
+# "Active" is deliberately everything except done: blocked/paused/
+# awaiting-decision/needs-reassessment tasks are all coming back to their files.
+(
+  cd "$OV_DIR" || exit 1
+  bash "$SCRIPT" start own-c; bash "$SCRIPT" check own-c; bash "$SCRIPT" complete own-c
+) >/dev/null 2>&1
+DONE_STATE=$(cd "$OV_DIR" && bash "$SCRIPT" status own-c | jq -r '.state')
+[ "$DONE_STATE" = "done" ] && RC_CHK=0 || RC_CHK=1
+check "precondition: own-c really reached 'done' (got $DONE_STATE)" $RC_CHK
+OUT=$(cd "$OV_DIR" && bash "$SCRIPT" check-overlap own-a 2>&1); RC=$?
+[ "$RC" = "0" ] && RC_CHK=0 || RC_CHK=1
+check "a DONE task's declaration releases its files — own-a now reports NO CONFLICT (exit $RC)" $RC_CHK
+# ... and the same declaration blocks again from a suspended state, proving the
+# release is specifically about 'done' rather than about "not currently busy".
+OV_SUSP=$(mktemp -d)
+(
+  cd "$OV_SUSP" || exit 1
+  bash "$SCRIPT" create sus-a "Owns scripts" --owns "scripts/team/*"
+  bash "$SCRIPT" create sus-b "Owns one file" --owns "scripts/team/task-state.sh"
+  bash "$SCRIPT" start sus-b; bash "$SCRIPT" block sus-b "waiting on review"
+) >/dev/null 2>&1
+OUT=$(cd "$OV_SUSP" && bash "$SCRIPT" check-overlap sus-a 2>&1); RC=$?
+[ "$RC" = "1" ] && RC_CHK=0 || RC_CHK=1
+check "a BLOCKED task still holds its declaration — conflict is still reported (exit $RC)" $RC_CHK
+echo "$OUT" | grep -q "state: blocked"; check "and the report names the blocked task's state" $?
+rm -rf "$OV_SUSP"
+
+echo "-- a task that declares NOTHING: exit 4 (UNDETERMINED), never 0 --"
+# The absent input must not become "the condition is satisfied". This is the
+# whole defect class, in the one read whose 0 means "go ahead".
+(cd "$OV_DIR" && bash "$SCRIPT" create own-none "Declares nothing") >/dev/null 2>&1
+OUT=$(cd "$OV_DIR" && bash "$SCRIPT" check-overlap own-none 2>&1); RC=$?
+[ "$RC" = "4" ] && RC_CHK=0 || RC_CHK=1
+check "an undeclared task answers UNDETERMINED (exit $RC — must be 4, NOT 0)" $RC_CHK
+echo "$OUT" | grep -q "UNDETERMINED own-none"; check "its output says UNDETERMINED" $?
+echo "$OUT" | grep -q "NO-OVERLAP"; RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "and it NEVER prints NO-OVERLAP for a task it could not compute an answer for" $RC_CHK
+OUT=$(cd "$OV_DIR" && bash "$SCRIPT" check-overlap no-such-task 2>&1); RC=$?
+[ "$RC" = "3" ] && RC_CHK=0 || RC_CHK=1
+check "an unknown task id answers UNDETERMINED (exit $RC — must be 3)" $RC_CHK
+OUT=$(cd "$OV_DIR" && bash "$SCRIPT" check-overlap 2>&1); RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "no task id at all is bad usage (exit $RC — must be 2)" $RC_CHK
+echo "$OUT" | grep -q "NONZERO NEVER MEANS NO CONFLICT"; check "the usage line states the exit-code direction" $?
+rm -rf "$OV_DIR"
+
+echo "== Part 2.4: OWNERSHIP IS OPTIONAL — a task with no declaration behaves exactly as before =="
+# The compatibility claim, asserted rather than assumed: everything a task
+# without --owns could do before this part, it must still do, unchanged.
+OPT_DIR=$(mktemp -d)
+(
+  cd "$OPT_DIR" || exit 1
+  bash "$SCRIPT" create plain "No declaration"
+) >/dev/null 2>&1
+jq -e '.tasks.plain.owns == []' "$OPT_DIR/$STATE_FILE" >/dev/null
+check "a task created without --owns declares the empty set" $?
+jq -e '.tasks.plain.ownership_declarations == []' "$OPT_DIR/$STATE_FILE" >/dev/null
+check "and records no ownership declaration at all" $?
+(cd "$OPT_DIR" && bash "$SCRIPT" start plain) >/dev/null 2>&1
+check "OPTIONAL: start still succeeds on an undeclared task" $?
+(cd "$OPT_DIR" && bash "$SCRIPT" check plain) >/dev/null 2>&1
+check "OPTIONAL: check still succeeds" $?
+(cd "$OPT_DIR" && bash "$SCRIPT" complete plain) >/dev/null 2>&1
+check "OPTIONAL: complete still succeeds with no evidence and no declaration — no new requirement appeared" $?
+jq -e '.tasks.plain.state == "done"' "$OPT_DIR/$STATE_FILE" >/dev/null
+check "OPTIONAL: and the task really reached done" $?
+rm -rf "$OPT_DIR"
+# The same claim for a record that has NONE of the Part 2.4 keys at all, which
+# is what every task written before this part actually looks like on disk.
+LEG24_DIR=$(mktemp -d)
+(cd "$LEG24_DIR" && bash "$SCRIPT" create leg "Legacy-shaped" && bash "$SCRIPT" start leg) >/dev/null 2>&1
+jq 'del(.tasks.leg.owns, .tasks.leg.ownership_declarations, .tasks.leg.regressions)' \
+  "$LEG24_DIR/$STATE_FILE" > "$LEG24_DIR/l.tmp" && mv "$LEG24_DIR/l.tmp" "$LEG24_DIR/$STATE_FILE"
+jq -e '(.tasks.leg | has("owns") | not) and (.tasks.leg | has("regressions") | not) and (.tasks.leg | has("evidence_floor") | not)' \
+  "$LEG24_DIR/$STATE_FILE" >/dev/null
+check "precondition: the legacy-shaped record genuinely has none of the Part 2.4 keys" $?
+(cd "$LEG24_DIR" && bash "$SCRIPT" check leg) >/dev/null 2>&1
+check "LEGACY: check still succeeds with no owns/regressions/evidence_floor keys" $?
+(cd "$LEG24_DIR" && bash "$SCRIPT" complete leg) >/dev/null 2>&1
+check "LEGACY: complete still succeeds — an ABSENT evidence_floor imposes no evidence requirement" $?
+(cd "$LEG24_DIR" && bash "$SCRIPT" check-overlap leg) >/dev/null 2>&1; RC=$?
+[ "$RC" = "4" ] && RC_CHK=0 || RC_CHK=1
+check "LEGACY: an absent owns array answers UNDETERMINED (exit $RC), never 0" $RC_CHK
+(cd "$LEG24_DIR" && bash "$SCRIPT" declare-ownership leg --owns "src/*") >/dev/null 2>&1; RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "LEGACY: declare-ownership on a DONE task is refused (exit $RC)" $RC_CHK
+rm -rf "$LEG24_DIR"
+
+echo "== Part 2.4: declare-ownership — allowed from planned/building, REFUSED from 'checking' (the anti-evasion rule) =="
+# 'checking' is the state complete-gate.sh gates from, and its scope check reads
+# this very field. A task able to re-declare from there could widen its scope to
+# fit whatever it actually touched, at the exact moment that scope was about to
+# be read.
+DO_DIR=$(mktemp -d)
+(cd "$DO_DIR" && bash "$SCRIPT" create d1 "Declarer") >/dev/null 2>&1
+OUT=$(cd "$DO_DIR" && bash "$SCRIPT" declare-ownership d1 --owns "src/*, tests/*" 2>&1); RC=$?
+check "declare-ownership succeeds from 'planned' (exit $RC)" $RC
+echo "$OUT" | grep -q "DECLARED-OWNERSHIP d1 paths=2"; check "its output states how many patterns were recorded" $?
+jq -e '.tasks.d1.owns == ["src/*","tests/*"]' "$DO_DIR/$STATE_FILE" >/dev/null
+check "surrounding whitespace is normalised away before storage" $?
+(cd "$DO_DIR" && bash "$SCRIPT" start d1) >/dev/null 2>&1
+(cd "$DO_DIR" && bash "$SCRIPT" declare-ownership d1 --owns "src/*,tests/*,docs/*") >/dev/null 2>&1
+check "declare-ownership succeeds from 'building'" $?
+jq -e '.tasks.d1.ownership_declarations | length == 2' "$DO_DIR/$STATE_FILE" >/dev/null
+check "each declaration appends a new ownership_declarations entry" $?
+jq -e '.tasks.d1.ownership_declarations[-1].previous_owns == ["src/*","tests/*"]' "$DO_DIR/$STATE_FILE" >/dev/null
+check "AUDITABILITY: the entry keeps the PREVIOUS set, so a widened scope is visible in the record" $?
+(cd "$DO_DIR" && bash "$SCRIPT" check d1) >/dev/null 2>&1
+CS1=$(checksum "$DO_DIR/$STATE_FILE")
+OUT=$(cd "$DO_DIR" && bash "$SCRIPT" declare-ownership d1 --owns "everything/*" 2>&1); RC=$?
+[ "$RC" = "1" ] && RC_CHK=0 || RC_CHK=1
+check "ANTI-EVASION: declare-ownership is REFUSED from 'checking' (exit $RC)" $RC_CHK
+echo "$OUT" | grep -q "complete-gate.sh"; check "the refusal explains that 'checking' is where the gate reads this field" $?
+CS2=$(checksum "$DO_DIR/$STATE_FILE")
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1
+check "and the state file is byte-for-byte unchanged after that refusal" $RC_CHK
+jq -e '.tasks.d1.owns == ["src/*","tests/*","docs/*"]' "$DO_DIR/$STATE_FILE" >/dev/null
+check "the declared scope was NOT widened by the refused call" $?
+rm -rf "$DO_DIR"
+
+echo "-- rejected declare-ownership arguments exit before any write --"
+DOB_DIR=$(mktemp -d)
+(cd "$DOB_DIR" && bash "$SCRIPT" create d1 "Declarer") >/dev/null 2>&1
+for bad in "/etc/passwd" "C:/windows/x.txt" "../outside/*" "scripts\\team\\x.sh"; do
+  CS1=$(checksum "$DOB_DIR/$STATE_FILE")
+  OUT=$(cd "$DOB_DIR" && bash "$SCRIPT" declare-ownership d1 --owns "$bad" 2>&1); RC=$?
+  [ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+  check "pattern '$bad' is refused as bad usage (exit $RC)" $RC_CHK
+  echo "$OUT" | grep -qF "$bad"; check "  the refusal quotes the offending pattern '$bad'" $?
+  CS2=$(checksum "$DOB_DIR/$STATE_FILE")
+  [ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1
+  check "  state file byte-for-byte unchanged after refusing '$bad'" $RC_CHK
+done
+CS1=$(checksum "$DOB_DIR/$STATE_FILE")
+(cd "$DOB_DIR" && bash "$SCRIPT" declare-ownership d1 --owns "   ") >/dev/null 2>&1; RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "a whitespace-only --owns is refused exactly as an empty one is (exit $RC)" $RC_CHK
+(cd "$DOB_DIR" && bash "$SCRIPT" declare-ownership d1 --owns) >/dev/null 2>&1; RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "--owns with no value errors instead of hanging (exit $RC)" $RC_CHK
+CS2=$(checksum "$DOB_DIR/$STATE_FILE")
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1
+check "state file byte-for-byte unchanged after both" $RC_CHK
+# create's --owns goes through the SAME validator, and a bad pattern must not
+# leave a half-created task behind.
+OUT=$(cd "$DOB_DIR" && bash "$SCRIPT" create d2 "Bad declaration" --owns "/abs/path" 2>&1); RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "create --owns uses the same validator and refuses the same pattern (exit $RC)" $RC_CHK
+jq -e '.tasks | has("d2") | not' "$DOB_DIR/$STATE_FILE" >/dev/null
+check "and the task was NOT created by the refused call" $?
+rm -rf "$DOB_DIR"
+
+echo "== Part 2.4: check-combined — a set of finished parts is verified TOGETHER, or not at all =="
+if command -v git >/dev/null 2>&1; then
+  CB_DIR=$(mktemp -d)
+  (
+    cd "$CB_DIR" || exit 1
+    git init -q; git config user.email t@t.test; git config user.name t
+    echo ".claude/state/" > .gitignore
+    echo base > tracked.txt
+    git add -A; git commit -qm init
+    for t in cb1 cb2; do
+      bash "$SCRIPT" create "$t" "Part $t"
+      bash "$SCRIPT" start "$t"; bash "$SCRIPT" check "$t"
+      echo "artifact $t" > "$t-a.txt"; echo "output $t" > "$t-o.txt"
+      bash "$SCRIPT" record-evidence "$t" --command "bash tests/x.sh" --exit-code 0 \
+        --tests-total 3 --tests-skipped 0 --output-file "$t-o.txt" --artifact "$t-a.txt"
+      bash "$GATE" "$t"
+    done
+  ) >/dev/null 2>&1
+  CB_S1=$(cd "$CB_DIR" && bash "$SCRIPT" status cb1 | jq -r '.state')
+  CB_S2=$(cd "$CB_DIR" && bash "$SCRIPT" status cb2 | jq -r '.state')
+  [ "$CB_S1" = "done" ] && [ "$CB_S2" = "done" ] && RC_CHK=0 || RC_CHK=1
+  check "precondition: both parts really reached done through the gate (got $CB_S1/$CB_S2)" $RC_CHK
+  # cb1 was verified BEFORE cb2's files landed, so cb1's evidence is stale
+  # against the combined tree even though cb1's own gate passed at the time.
+  OUT=$(cd "$CB_DIR" && bash "$SCRIPT" check-combined cb1 cb2 2>&1); RC=$?
+  [ "$RC" = "1" ] && RC_CHK=0 || RC_CHK=1
+  check "FAILS when one part's evidence predates another's changes (exit $RC — 1, not 0)" $RC_CHK
+  echo "$OUT" | grep -q "NOT-COMBINED-CURRENT"; check "the output leads with NOT-COMBINED-CURRENT" $?
+  echo "$OUT" | grep -q "cb1: evidence recorded at"; check "it names the stale part (cb1)" $?
+  echo "$OUT" | grep -q "its evidence predates the evidence recorded for: cb2"
+  check "it reports WHICH part's changes that evidence predates (cb2) — DESIGN.md's own clause" $?
+  # Re-record cb1's evidence against the combined tree: now they ARE mutually
+  # current, and the same command must say so. Without this the failure above
+  # would prove only that the command can refuse.
+  (cd "$CB_DIR" && bash "$SCRIPT" record-evidence cb1 --command "bash tests/x.sh" --exit-code 0 \
+    --tests-total 3 --tests-skipped 0 --output-file cb1-o.txt --artifact cb1-a.txt) >/dev/null 2>&1
+  OUT=$(cd "$CB_DIR" && bash "$SCRIPT" check-combined cb1 cb2 2>&1); RC=$?
+  [ "$RC" = "0" ] && RC_CHK=0 || RC_CHK=1
+  check "PASSES once both parts' evidence is current against the same tree (exit $RC)" $RC_CHK
+  echo "$OUT" | grep -q "COMBINED-CURRENT 2 task(s)"; check "the passing output names how many parts were checked" $?
+  echo "$OUT" | grep -q "It does NOT re-run anyone's tests"; check "and states plainly what exit 0 does NOT claim" $?
+  CS1=$(checksum "$CB_DIR/$STATE_FILE")
+  (cd "$CB_DIR" && bash "$SCRIPT" check-combined cb1 cb2) >/dev/null 2>&1
+  CS2=$(checksum "$CB_DIR/$STATE_FILE")
+  [ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1
+  check "check-combined is READ-ONLY — the state file is byte-for-byte unchanged" $RC_CHK
+  # The undetermined answers, each distinct from the others and from 0/1.
+  (cd "$CB_DIR" && bash "$SCRIPT" create cb3 "Unfinished part") >/dev/null 2>&1
+  OUT=$(cd "$CB_DIR" && bash "$SCRIPT" check-combined cb1 cb3 2>&1); RC=$?
+  [ "$RC" = "4" ] && RC_CHK=0 || RC_CHK=1
+  check "a part that is not 'done' answers UNDETERMINED (exit $RC — must be 4)" $RC_CHK
+  echo "$OUT" | grep -q "cb3 (state: planned)"; check "  and names the part and its actual state" $?
+  OUT=$(cd "$CB_DIR" && bash "$SCRIPT" check-combined cb1 nope 2>&1); RC=$?
+  [ "$RC" = "3" ] && RC_CHK=0 || RC_CHK=1
+  check "an unknown part answers UNDETERMINED (exit $RC — must be 3)" $RC_CHK
+  OUT=$(cd "$CB_DIR" && bash "$SCRIPT" check-combined cb1 2>&1); RC=$?
+  [ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+  check "ONE id is bad usage — a combination needs at least two (exit $RC)" $RC_CHK
+  OUT=$(cd "$CB_DIR" && bash "$SCRIPT" check-combined cb1 cb1 2>&1); RC=$?
+  [ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+  check "a REPEATED id is refused rather than silently deduped (exit $RC)" $RC_CHK
+  echo "$OUT" | grep -q "more than once"; check "  and the refusal says why" $?
+  rm -rf "$CB_DIR"
+else
+  echo "  SKIP: 'git' not on PATH, cannot build the two-part combined-change fixture"
+fi
+echo "-- a task completed WITHOUT evidence, and the non-git case: both UNDETERMINED, never 0 --"
+CBX_DIR=$(mktemp -d)
+(
+  cd "$CBX_DIR" || exit 1
+  for t in q1 q2; do
+    bash "$SCRIPT" create "$t" "Q"; bash "$SCRIPT" start "$t"; bash "$SCRIPT" check "$t"
+    bash "$SCRIPT" complete "$t"
+  done
+) >/dev/null 2>&1
+OUT=$(cd "$CBX_DIR" && bash "$SCRIPT" check-combined q1 q2 2>&1); RC=$?
+[ "$RC" = "3" ] && RC_CHK=0 || RC_CHK=1
+check "parts completed with NO evidence answer UNDETERMINED (exit $RC — must be 3, never 0)" $RC_CHK
+echo "$OUT" | grep -q "no evidence recorded"; check "  and the message says so" $?
+(
+  cd "$CBX_DIR" || exit 1
+  for t in q1 q2; do
+    echo "out $t" > "$t.txt"
+    bash "$SCRIPT" record-evidence "$t" --command true --exit-code 0 --tests-total 1 \
+      --tests-skipped 0 --output-file "$t.txt"
+  done
+) >/dev/null 2>&1
+OUT=$(cd "$CBX_DIR" && bash "$SCRIPT" check-combined q1 q2 2>&1); RC=$?
+[ "$RC" = "5" ] && RC_CHK=0 || RC_CHK=1
+check "OUTSIDE A GIT REPOSITORY the answer is UNDETERMINED (exit $RC — must be 5, NEVER 0)" $RC_CHK
+echo "$OUT" | grep -q "no-git-repository"; check "  and it names the placeholder rather than reporting a match" $?
+echo "$OUT" | grep -q "COMBINED-CURRENT"; RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "  it NEVER prints COMBINED-CURRENT when nothing could be compared" $RC_CHK
+rm -rf "$CBX_DIR"
+
+echo "== Part 2.4: a later regression REOPENS a done task, and its OLD evidence cannot re-complete it =="
+RG_DIR=$(mktemp -d)
+(
+  cd "$RG_DIR" || exit 1
+  bash "$SCRIPT" create rg "Regressing part"
+  bash "$SCRIPT" start rg; bash "$SCRIPT" check rg
+  echo "real artifact" > rg-a.txt; echo "real output" > rg-o.txt
+  bash "$SCRIPT" record-evidence rg --command "bash tests/x.sh" --exit-code 0 \
+    --tests-total 4 --tests-skipped 0 --output-file rg-o.txt --artifact rg-a.txt
+  bash "$SCRIPT" complete rg
+) >/dev/null 2>&1
+RG_STATE=$(cd "$RG_DIR" && bash "$SCRIPT" status rg | jq -r '.state')
+[ "$RG_STATE" = "done" ] && RC_CHK=0 || RC_CHK=1
+check "precondition: the part is 'done' with one evidence record (got $RG_STATE)" $RC_CHK
+OUT=$(cd "$RG_DIR" && bash "$SCRIPT" regress rg --reason "the CRLF fix stopped holding" --detected-by "nightly suite, case 412" 2>&1); RC=$?
+check "regress succeeds from 'done' (exit $RC)" $RC
+echo "$OUT" | grep -q "REGRESSED rg from=done state=building"; check "its output names the transition" $?
+jq -e '.tasks.rg.state == "building"' "$RG_DIR/$STATE_FILE" >/dev/null
+check "the reopened task is in 'building' — NOT 'checking', which is one command from done" $?
+jq -e '.tasks.rg.evidence_floor == 1' "$RG_DIR/$STATE_FILE" >/dev/null
+check "it records an evidence_floor equal to the evidence it already held" $?
+jq -e '.tasks.rg.regressions | length == 1' "$RG_DIR/$STATE_FILE" >/dev/null
+check "it appends a regressions entry" $?
+jq -e '.tasks.rg.regressions[0].reason == "the CRLF fix stopped holding" and .tasks.rg.regressions[0].detected_by == "nightly suite, case 412"' "$RG_DIR/$STATE_FILE" >/dev/null
+check "which records WHY it regressed and WHAT detected it, verbatim" $?
+jq -e '.tasks.rg.regressions[0] | has("regressed_at") and has("code_snapshot")' "$RG_DIR/$STATE_FILE" >/dev/null
+check "and WHEN, alongside the code identity at that moment" $?
+jq -e '.tasks.rg.history[-1] | .from == "done" and .to == "building" and .resolution == "regressed"' "$RG_DIR/$STATE_FILE" >/dev/null
+check "the history entry records the done -> building reopening" $?
+
+echo "-- THE POINT OF THE FLOOR: the old evidence still passes every other check, and must still be refused --"
+(cd "$RG_DIR" && bash "$SCRIPT" check rg) >/dev/null 2>&1
+check "the reopened task can move to 'checking' normally" $?
+CS1=$(checksum "$RG_DIR/$STATE_FILE")
+OUT=$(cd "$RG_DIR" && bash "$SCRIPT" complete rg 2>&1); RC=$?
+[ "$RC" = "1" ] && RC_CHK=0 || RC_CHK=1
+check "task-state.sh complete REFUSES a reopened task on its old evidence (exit $RC)" $RC_CHK
+echo "$OUT" | grep -q "REOPENED after a regression"; check "the refusal says why" $?
+CS2=$(checksum "$RG_DIR/$STATE_FILE")
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1
+check "and the state file is byte-for-byte unchanged" $RC_CHK
+jq -e '.tasks.rg.state == "checking"' "$RG_DIR/$STATE_FILE" >/dev/null
+check "the task did NOT reach 'done'" $?
+OUT=$(cd "$RG_DIR" && bash "$GATE" rg 2>&1); RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "complete-gate.sh ALSO refuses it (exit $RC) — the floor is enforced in both places" $RC_CHK
+echo "$OUT" | grep -q "GATE FAIL (check 7)"; check "the gate fails at check 7 by name" $?
+echo "$OUT" | grep -q "GATE PASS"; RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "and the gate NEVER prints GATE PASS for it" $RC_CHK
+echo "-- and it completes once, and only once, FRESH evidence exists --"
+(cd "$RG_DIR" && bash "$SCRIPT" record-evidence rg --command "bash tests/x.sh" --exit-code 0 \
+  --tests-total 4 --tests-skipped 0 --output-file rg-o.txt --artifact rg-a.txt) >/dev/null 2>&1
+check "record-evidence on the reopened task succeeds" $?
+OUT=$(cd "$RG_DIR" && bash "$GATE" rg 2>&1); RC=$?
+[ "$RC" = "0" ] && RC_CHK=0 || RC_CHK=1
+check "CONTROL: the gate now PASSES with fresh evidence (exit $RC) — the refusals above are not vacuous" $RC_CHK
+jq -e '.tasks.rg.state == "done"' "$RG_DIR/$STATE_FILE" >/dev/null
+check "CONTROL: and the task reaches done again" $?
+rm -rf "$RG_DIR"
+
+echo "-- regress is refused from every state except 'done', and its two flags are required --"
+RGB_DIR=$(mktemp -d)
+(cd "$RGB_DIR" && bash "$SCRIPT" create rb "Not done yet" && bash "$SCRIPT" start rb) >/dev/null 2>&1
+CS1=$(checksum "$RGB_DIR/$STATE_FILE")
+OUT=$(cd "$RGB_DIR" && bash "$SCRIPT" regress rb --reason "r" --detected-by "d" 2>&1); RC=$?
+[ "$RC" = "1" ] && RC_CHK=0 || RC_CHK=1
+check "regress from 'building' is refused (exit $RC)" $RC_CHK
+echo "$OUT" | grep -q "must be 'done'"; check "  and says which state it needs" $?
+(cd "$RGB_DIR" && bash "$SCRIPT" regress rb --reason "r") >/dev/null 2>&1; RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "regress with no --detected-by is bad usage (exit $RC)" $RC_CHK
+(cd "$RGB_DIR" && bash "$SCRIPT" regress rb --detected-by "d") >/dev/null 2>&1; RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "regress with no --reason is bad usage (exit $RC)" $RC_CHK
+(cd "$RGB_DIR" && bash "$SCRIPT" regress rb --reason "   " --detected-by "d") >/dev/null 2>&1; RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "a whitespace-only --reason is refused exactly as an empty one is (exit $RC)" $RC_CHK
+(cd "$RGB_DIR" && bash "$SCRIPT" regress rb --reason "r" --detected-by "  ") >/dev/null 2>&1; RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "a whitespace-only --detected-by likewise (exit $RC)" $RC_CHK
+(cd "$RGB_DIR" && bash "$SCRIPT" regress rb --reason) >/dev/null 2>&1; RC=$?
+[ "$RC" = "2" ] && RC_CHK=0 || RC_CHK=1
+check "--reason with no value errors instead of hanging (exit $RC)" $RC_CHK
+CS2=$(checksum "$RGB_DIR/$STATE_FILE")
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1
+check "every one of those rejections left the state file byte-for-byte unchanged" $RC_CHK
+rm -rf "$RGB_DIR"
+
+echo "-- affected dependents are REPORTED, never reopened behind the lead's back --"
+RGD_DIR=$(mktemp -d)
+(
+  cd "$RGD_DIR" || exit 1
+  bash "$SCRIPT" create base "Base part"
+  bash "$SCRIPT" start base; bash "$SCRIPT" check base; bash "$SCRIPT" complete base
+  bash "$SCRIPT" create dep "Dependent part" --depends base
+  bash "$SCRIPT" start dep; bash "$SCRIPT" check dep; bash "$SCRIPT" complete dep
+) >/dev/null 2>&1
+OUT=$(cd "$RGD_DIR" && bash "$SCRIPT" regress base --reason "it broke" --detected-by "a report" 2>&1)
+echo "$OUT" | grep -q "POSSIBLY AFFECTED"; check "regress names the completed tasks that depended on it" $?
+echo "$OUT" | grep -q "dep"; check "  naming the dependent by id" $?
+jq -e '.tasks.dep.state == "done"' "$RGD_DIR/$STATE_FILE" >/dev/null
+check "but the dependent is NOT reopened automatically — nothing verified that IT regressed" $?
+jq -e '.tasks.dep | has("evidence_floor") | not' "$RGD_DIR/$STATE_FILE" >/dev/null
+check "and no evidence floor was imposed on it either" $?
+rm -rf "$RGD_DIR"
+
+echo "== Part 2.4: 20 concurrent regress calls on one done task reopen it exactly ONCE =="
+# Same shape as the existing 20-way concurrency tests. Reopening is a
+# read-modify-write (read the evidence length, write the floor and the state),
+# which is exactly what raced before the lock existed. Two winners would append
+# two regressions entries and could write two different floors.
+if command -v timeout >/dev/null 2>&1; then
+  CONC_R_DIR=$(mktemp -d)
+  (
+    cd "$CONC_R_DIR" || exit 1
+    bash "$SCRIPT" create r-conc "Concurrent regression task"
+    bash "$SCRIPT" start r-conc; bash "$SCRIPT" check r-conc
+    echo "out" > rc-o.txt
+    bash "$SCRIPT" record-evidence r-conc --command true --exit-code 0 --tests-total 1 \
+      --tests-skipped 0 --output-file rc-o.txt
+    bash "$SCRIPT" complete r-conc
+  ) >/dev/null 2>&1
+  CONC_R_OUT=$(timeout 60 bash -c '
+    SCRIPT="$1"; DIR="$2"; N="$3"
+    PIDS=()
+    for i in $(seq 1 "$N"); do
+      ( cd "$DIR" && bash "$SCRIPT" regress r-conc --reason "regression $i" \
+          --detected-by "detector $i" >/dev/null 2>&1 && echo WON ) &
+      PIDS+=("$!")
+    done
+    for pid in "${PIDS[@]}"; do wait "$pid"; done
+  ' _ "$SCRIPT" "$CONC_R_DIR" 20)
+  RC=$?
+  [ "$RC" != "124" ] && RC_CHK=0 || RC_CHK=1
+  check "20 concurrent regress calls complete without deadlocking on the lock (exit $RC, 124=timeout)" $RC_CHK
+  CONC_R_WON=$(echo "$CONC_R_OUT" | grep -c "WON")
+  [ "$CONC_R_WON" = "1" ] && RC_CHK=0 || RC_CHK=1
+  check "exactly ONE of the 20 succeeded — the other 19 were refused (got $CONC_R_WON)" $RC_CHK
+  CONC_R_LEN=$(jq -r '.tasks["r-conc"].regressions | length' "$CONC_R_DIR/$STATE_FILE" 2>/dev/null)
+  [ "$CONC_R_LEN" = "1" ] && RC_CHK=0 || RC_CHK=1
+  check "exactly one regressions entry was appended, none clobbered (got ${CONC_R_LEN:-0})" $RC_CHK
+  CONC_R_FLOOR=$(jq -r '.tasks["r-conc"].evidence_floor' "$CONC_R_DIR/$STATE_FILE" 2>/dev/null)
+  [ "$CONC_R_FLOOR" = "1" ] && RC_CHK=0 || RC_CHK=1
+  check "the evidence floor is the one true evidence count, not a racing re-read (got ${CONC_R_FLOOR:-none})" $RC_CHK
+  CONC_R_STATE=$(jq -r '.tasks["r-conc"].state' "$CONC_R_DIR/$STATE_FILE" 2>/dev/null)
+  [ "$CONC_R_STATE" = "building" ] && RC_CHK=0 || RC_CHK=1
+  check "the task is in 'building' after the race (got ${CONC_R_STATE:-none})" $RC_CHK
+  rm -rf "$CONC_R_DIR"
+else
+  echo "  SKIP: 'timeout' not on PATH, cannot safely bound the concurrent-regress test"
+fi
+
+echo "== Part 2.4: 20 concurrent declare-ownership calls lose no declarations =="
+if command -v timeout >/dev/null 2>&1; then
+  CONC_O_DIR=$(mktemp -d)
+  ( cd "$CONC_O_DIR" && bash "$SCRIPT" create o-conc "Concurrent declarer" \
+    && bash "$SCRIPT" start o-conc ) >/dev/null 2>&1
+  timeout 60 bash -c '
+    SCRIPT="$1"; DIR="$2"; N="$3"
+    PIDS=()
+    for i in $(seq 1 "$N"); do
+      ( cd "$DIR" && bash "$SCRIPT" declare-ownership o-conc --owns "src/p$i/*" >/dev/null 2>&1 ) &
+      PIDS+=("$!")
+    done
+    for pid in "${PIDS[@]}"; do wait "$pid"; done
+  ' _ "$SCRIPT" "$CONC_O_DIR" 20
+  RC=$?
+  [ "$RC" != "124" ] && RC_CHK=0 || RC_CHK=1
+  check "20 concurrent declare-ownership calls complete without deadlocking (exit $RC, 124=timeout)" $RC_CHK
+  CONC_O_LEN=$(jq -r '.tasks["o-conc"].ownership_declarations | length' "$CONC_O_DIR/$STATE_FILE" 2>/dev/null)
+  [ "$CONC_O_LEN" = "20" ] && RC_CHK=0 || RC_CHK=1
+  check "all 20 declarations were appended, none lost to a racing read-modify-write (got ${CONC_O_LEN:-0})" $RC_CHK
+  jq -e '.tasks["o-conc"].ownership_declarations[-1].owns == .tasks["o-conc"].owns' "$CONC_O_DIR/$STATE_FILE" >/dev/null
+  check "and the live owns field matches the LAST declaration recorded" $?
+  rm -rf "$CONC_O_DIR"
+else
+  echo "  SKIP: 'timeout' not on PATH, cannot safely bound the concurrent-declaration test"
+fi
+
+echo "== FAIL-CLOSED READS, Part 2.4 fields: owns, ownership_declarations, regressions, evidence_floor =="
+# These are new fields, so they are new opportunities for the SAME defect the
+# section above exists for: a value that cannot be parsed becoming one that
+# means "the condition was not met". The two that matter most are called out at
+# their own cases below -- `owns` (where an unreadable declaration read as "no
+# patterns" would make check-overlap answer NO CONFLICT and complete-gate.sh's
+# check 8 skip entirely) and `evidence_floor` (where an unreadable floor read as
+# absent would let a regressed task re-complete on its pre-regression evidence,
+# which is the whole mechanism).
+hs_owned()    { bash "$SCRIPT" create c "Hardening fixture" --owns "src/*"; bash "$SCRIPT" start c; }
+hs_two_owned(){ bash "$SCRIPT" create o "Other task" --owns "docs/*"; bash "$SCRIPT" create c "Hardening fixture" --owns "src/*"; }
+hs_done_ev()  { bash "$SCRIPT" create c "Hardening fixture"; bash "$SCRIPT" start c; bash "$SCRIPT" check c; echo "real output" > ev.txt; bash "$SCRIPT" record-evidence c --command "true" --exit-code 0 --tests-total 1 --tests-skipped 0 --output-file ev.txt; bash "$SCRIPT" complete c; }
+hs_reopened() { hs_done_ev; bash "$SCRIPT" regress c --reason "it regressed" --detected-by "a suite"; bash "$SCRIPT" check c; }
+# Two parts, both genuinely done with evidence -- the only shape check-combined
+# reaches its own field reads from: a missing or unfinished task is answered
+# before any field is read.
+hs_two_done() { hs_done_ev; bash "$SCRIPT" create c2 "Second part"; bash "$SCRIPT" start c2; bash "$SCRIPT" check c2; echo "real output 2" > ev2.txt; bash "$SCRIPT" record-evidence c2 --command "true" --exit-code 0 --tests-total 1 --tests-skipped 0 --output-file ev2.txt; bash "$SCRIPT" complete c2; }
+
+echo "-- owns: an unreadable declaration must never read as 'no patterns' --"
+harden_case "owns=true (check-overlap)" hs_two_owned '.tasks.c.owns = true' \
+  owns 3 check-overlap c
+harden_case "owns is a bare string (check-overlap)" hs_two_owned '.tasks.c.owns = "src/*"' \
+  owns 3 check-overlap c
+harden_case "owns holds a number (check-overlap)" hs_two_owned '.tasks.c.owns = [123]' \
+  owns 3 check-overlap c
+harden_case "owns holds an empty-string pattern (check-overlap)" hs_two_owned '.tasks.c.owns = [""]' \
+  owns 3 check-overlap c
+# The OTHER task's declaration being unreadable must refuse too, not silently
+# drop that task out of the comparison -- dropping it is how a real conflict
+# becomes "no conflict".
+harden_case "another ACTIVE task's owns is corrupt (check-overlap)" hs_two_owned '.tasks.o.owns = true' \
+  owns 3 check-overlap c
+# ... and a task whose STATE cannot be read cannot be classified active-or-done
+# at all, so it refuses rather than being guessed at in either direction.
+harden_case "another task's state is unreadable (check-overlap)" hs_two_owned '.tasks.o.state = ["planned"]' \
+  state 3 check-overlap c
+# Explicitly: never exit 0, and never the word that means "go ahead".
+OVX_DIR=$(harden_dir hs_two_owned '.tasks.c.owns = true')
+OVX_OUT=$(cd "$OVX_DIR" && bash "$SCRIPT" check-overlap c 2>&1); OVX_RC=$?
+[ "$OVX_RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "a corrupt owns NEVER exits 0 from check-overlap (exit $OVX_RC — 0 would mean proceed)" $RC_CHK
+echo "$OVX_OUT" | grep -q "NO-OVERLAP"; RC=$?
+[ "$RC" != "0" ] && RC_CHK=0 || RC_CHK=1
+check "and it never prints NO-OVERLAP for a declaration it could not read" $RC_CHK
+rm -rf "$OVX_DIR"
+# declare-ownership refuses at the point it would OVERWRITE a corrupt owns --
+# overwriting would destroy the evidence that the record was tampered with.
+harden_case "owns=true (declare-ownership)" hs_owned '.tasks.c.owns = true' \
+  owns 1 declare-ownership c --owns "src/*,tests/*"
+harden_case "ownership_declarations=true" hs_owned '.tasks.c.ownership_declarations = true' \
+  ownership_declarations 1 declare-ownership c --owns "src/*,tests/*"
+
+echo "-- evidence_floor: an unreadable floor would let a reopened task re-complete on old evidence --"
+harden_case "evidence_floor=null (complete)" hs_reopened '.tasks.c.evidence_floor = null' \
+  evidence_floor 1 complete c
+harden_case "evidence_floor is the string \"1\" (complete)" hs_reopened '.tasks.c.evidence_floor = "1"' \
+  evidence_floor 1 complete c
+harden_case "evidence_floor is negative (complete)" hs_reopened '.tasks.c.evidence_floor = -1' \
+  evidence_floor 1 complete c
+harden_case "evidence_floor is fractional (complete)" hs_reopened '.tasks.c.evidence_floor = 1.5' \
+  evidence_floor 1 complete c
+# The evidence array the floor is compared against is settled too: an
+# unreadable one would make the comparison meaningless in either direction.
+harden_case "evidence=true on a reopened task (complete)" hs_reopened '.tasks.c.evidence = true' \
+  evidence 1 complete c
+# Deleting the floor outright is the obvious evasion, and it is the ONE case
+# that legitimately cannot be distinguished from a legacy record -- so the
+# regressions array is what makes it visible. Asserted as the disclosed limit
+# it is, not as a guard it is not.
+DELF_DIR=$(harden_dir hs_reopened 'del(.tasks.c.evidence_floor)')
+(cd "$DELF_DIR" && bash "$SCRIPT" complete c) >/dev/null 2>&1; RC=$?
+[ "$RC" = "0" ] && RC_CHK=0 || RC_CHK=1
+check "DISCLOSED LIMIT: deleting evidence_floor outright is indistinguishable from a never-reopened record, so completion proceeds (exit $RC)" $RC_CHK
+jq -e '.tasks.c.regressions | length == 1' "$DELF_DIR/$STATE_FILE" >/dev/null
+check "  but the regressions array still records that this task WAS reopened — the tampering is visible in the record" $?
+rm -rf "$DELF_DIR"
+
+echo "-- regressions / evidence: settled before regress writes to them --"
+harden_case "regressions=true (regress)" hs_done_ev '.tasks.c.regressions = true' \
+  regressions 1 regress c --reason "r" --detected-by "d"
+harden_case "evidence=true (regress cannot compute a floor)" hs_done_ev '.tasks.c.evidence = true' \
+  evidence 1 regress c --reason "r" --detected-by "d"
+harden_case "evidence holds a non-object entry (regress)" hs_done_ev '.tasks.c.evidence = ["junk"]' \
+  evidence 1 regress c --reason "r" --detected-by "d"
+# MONOTONIC FLOOR: a stored floor higher than the array can only come from a
+# hand-edit, and writing the lower number would REPLACE a stronger completion
+# guard with a weaker one.
+MONO_DIR=$(harden_dir hs_done_ev '.tasks.c.evidence_floor = 5')
+CS1=$(checksum "$MONO_DIR/$STATE_FILE")
+MONO_OUT=$(cd "$MONO_DIR" && bash "$SCRIPT" regress c --reason "r" --detected-by "d" 2>&1); RC=$?
+[ "$RC" = "1" ] && RC_CHK=0 || RC_CHK=1
+check "a regression that would LOWER an existing evidence_floor is refused (exit $RC)" $RC_CHK
+echo "$MONO_OUT" | grep -q "evidence_floor"; check "  and the refusal names the field" $?
+CS2=$(checksum "$MONO_DIR/$STATE_FILE")
+[ "$CS1" = "$CS2" ] && RC_CHK=0 || RC_CHK=1
+check "  state file byte-for-byte unchanged" $RC_CHK
+rm -rf "$MONO_DIR"
+
+echo "-- check-combined's own reads --"
+harden_case "a named task's evidence is not an array (check-combined)" hs_two_done '.tasks.c.evidence = true' \
+  evidence 3 check-combined c c2
+harden_case "a named task's state is unreadable (check-combined)" hs_two_done '.tasks.c.state = ["done"]' \
+  state 3 check-combined c c2
+harden_case "a named task's latest evidence has no code_snapshot (check-combined)" hs_two_done \
+  'del(.tasks.c.evidence[-1].code_snapshot)' \
+  evidence 3 check-combined c c2
+
+echo "-- Part 2.4 PASSING CONTROLS: every command above SUCCEEDS on an intact record --"
+# Without these, every refusal above could be explained by the command simply
+# not working.
+P24_DIR=$(mktemp -d)
+( cd "$P24_DIR" && hs_two_owned ) >/dev/null 2>&1
+(cd "$P24_DIR" && bash "$SCRIPT" check-overlap c) >/dev/null 2>&1; RC=$?
+[ "$RC" = "0" ] && RC_CHK=0 || RC_CHK=1
+check "CONTROL: check-overlap reaches a real verdict (0, no conflict) on an intact record (got $RC)" $RC_CHK
+(cd "$P24_DIR" && bash "$SCRIPT" start c && bash "$SCRIPT" declare-ownership c --owns "src/*,lib/*") >/dev/null 2>&1
+check "CONTROL: declare-ownership succeeds on an intact record" $?
+jq -e '.tasks.c.owns == ["src/*","lib/*"]' "$P24_DIR/$STATE_FILE" >/dev/null
+check "CONTROL: and it really replaced the declared set" $?
+rm -rf "$P24_DIR"
+P24B_DIR=$(mktemp -d)
+( cd "$P24B_DIR" && hs_done_ev ) >/dev/null 2>&1
+(cd "$P24B_DIR" && bash "$SCRIPT" regress c --reason "r" --detected-by "d") >/dev/null 2>&1
+check "CONTROL: regress succeeds on an intact done record" $?
+jq -e '.tasks.c.state == "building" and .tasks.c.evidence_floor == 1' "$P24B_DIR/$STATE_FILE" >/dev/null
+check "CONTROL: and it reopened the task and set the floor" $?
+rm -rf "$P24B_DIR"
+
+
 echo ""
 echo "=============================="
 echo "  PASS: $PASS   FAIL: $FAIL"
