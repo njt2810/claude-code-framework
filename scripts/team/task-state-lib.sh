@@ -25,7 +25,8 @@
 # SC2034 ("appears unused") is disabled file-wide, and only SC2034. The guard
 # family below deliberately publishes its results in globals rather than on
 # stdout -- NO_GIT_SNAPSHOT, ENTRY_STRING, RESTORE_STATE, TASK_PRESENCE,
-# EA_RECORDED_AT and BUDGET_VALUE -- precisely so the guards can be called
+# EA_RECORDED_AT, BUDGET_VALUE, OPEN_DECISION_ID, APPROVAL_VERDICT and
+# APPROVAL_DETAIL -- precisely so the guards can be called
 # DIRECTLY instead of inside `$( )`, where their `exit` would only ever kill a
 # subshell (see the note above require_task_state, and the fail-open defects
 # that note records). Every one of those globals IS read: by the CLI dispatch
@@ -323,6 +324,20 @@ atomic_update() {
 # write" rule visible at each call site rather than hidden in here.
 reassessment_required_error() {
   echo "ERROR: task '$1' is in state 'needs-reassessment', cannot $2 — its repair-attempt budget is exhausted. The ONLY way out of this state is: task-state.sh reassess $1 --specialist \"<who/what reassessed>\" --finding \"<what the reassessment concluded>\" [--additional-budget N]" >&2
+}
+
+# decision_required_error <id> <what-was-attempted> -- Part 2.3. The exact
+# counterpart of reassessment_required_error above, for the OTHER real stop:
+# state `awaiting-decision`, entered by `record-decision` when a material
+# deviation needs a human answer. Same shape and same reason: a real stop must
+# name its exits consistently no matter which door the caller tried. It has
+# TWO exits rather than one (a decision can be answered yes or no), and both
+# are named here -- an answer of "no" is still an answer, and a rejected
+# decision must be recordable rather than left looking unanswered. Prints
+# only; the caller exits 1 itself, keeping "rejected operations exit before
+# any write" visible at each call site.
+decision_required_error() {
+  echo "ERROR: task '$1' is in state 'awaiting-decision', cannot $2 — a decision card is open and is waiting for a human answer. The ONLY ways out of this state are: task-state.sh record-approval $1 --decision <decision-id> --scope \"<what is approved>\" --approved-by \"<who/what approved>\" --deployment-impact yes|no [--conditions \"<text>\"], or task-state.sh record-rejection $1 --decision <decision-id> --rejected-by \"<who/what rejected>\" --reason \"<why>\"" >&2
 }
 
 # require_nonblank <flag-label> <value> <why-it-matters> -- guard for the free-
@@ -1056,6 +1071,218 @@ require_repair_counters() {
     echo "  attempts_used is strictly monotonic by design; a counter below the audit trail would re-issue attempt_number $ATTEMPTS_USED_VALUE and durably corrupt the attempts array with a duplicate. The state file may have been hand-edited or partially written — only task-state.sh should write it." >&2
     exit 1
   fi
+}
+
+# --- Part 2.3: decision cards and scoped approval records --------------------
+
+# require_open_decision <id> -> OPEN_DECISION_ID
+#
+# Resolves "which decision card is this task currently waiting on?" -- the
+# read `record-approval` and `record-rejection` both branch on. Call it only
+# after the caller has confirmed the task is in state `awaiting-decision`.
+#
+# A task in `awaiting-decision` was put there by `record-decision`, which
+# ALWAYS appends a decision entry carrying a non-empty `decision_id` and a
+# `status` of exactly "open", in the same atomic object as the state change.
+# So there is no legitimate absent-case here at all: an empty `decisions`
+# array, a last entry with no usable `decision_id`, or a last entry whose
+# `status` is anything other than "open" on a task that IS in
+# `awaiting-decision` is an inconsistent record, not a legacy one. Each is
+# refused by name rather than defaulted -- defaulting any of them would let a
+# resolution be written against a card that is not open, which is the same
+# "unreadable value becomes permission" shape the whole family exists for.
+#
+# Only the LAST entry is consulted because only one decision can ever be open
+# at a time: `record-decision` is refused from `awaiting-decision`, so a second
+# card cannot be raised while the first is unanswered.
+OPEN_DECISION_ID=""
+require_open_decision() {
+  local id="$1"
+  require_object_array "$id" "decisions"
+  if [ "$ARRAY_LENGTH" -eq 0 ]; then
+    echo "ERROR: task '$id' is in state 'awaiting-decision' but its 'decisions' array is empty, so there is no decision card to answer. Refusing this operation — nothing was changed." >&2
+    echo "  Only 'record-decision' puts a task into this state, and it always appends the card in the same atomic write as the state change, so this combination cannot have been produced by task-state.sh. The state file may have been hand-edited or partially written." >&2
+    exit "$STATE_FAIL_EXIT"
+  fi
+  require_entry_string "$id" "decisions" -1 "decision_id"
+  OPEN_DECISION_ID="$ENTRY_STRING"
+  require_entry_string "$id" "decisions" -1 "status"
+  if [ "$ENTRY_STRING" != "open" ]; then
+    echo "ERROR: task '$id' is in state 'awaiting-decision' but its latest decision card '$OPEN_DECISION_ID' has a 'status' of '$ENTRY_STRING' rather than 'open'. Refusing this operation — nothing was changed." >&2
+    echo "  A card that is already answered cannot be answered again, and a task frozen on an answered card is an inconsistent record. The state file may have been hand-edited or partially written — only task-state.sh should write it." >&2
+    exit "$STATE_FAIL_EXIT"
+  fi
+}
+
+# require_approval_verdict <id> <action-scope> <action-deployment: yes|no>
+#                          <current-revision> -> APPROVAL_VERDICT + APPROVAL_DETAIL
+#
+# THE SAFETY-CRITICAL READ OF PART 2.3. It answers, for `check-approval`,
+# "does a recorded approval cover the action the caller is about to take?" --
+# and the ONLY verdict that may ever mean "yes" is the literal word `ok`.
+# Every other outcome, including every failure of the read itself, lands on a
+# verdict the caller turns into a NONZERO exit. NONZERO NEVER MEANS APPROVED.
+#
+# APPROVAL_VERDICT is the decision and is one of exactly six words:
+#   ok            -- an approval covers this action's scope, revision and
+#                    deployment impact.
+#   none          -- this task has no approval records at all.
+#   scope         -- approvals exist, none of their scopes matches the action.
+#   deployment    -- an approval matches the scope, but the action carries
+#                    deployment impact and that approval did not.
+#   revision      -- an approval matches the scope, but the code has moved
+#                    since it was granted.
+#   unverifiable  -- an approval matches the scope, but the revision could not
+#                    be established on one side or the other (see below).
+# APPROVAL_DETAIL is everything after the first newline of the jq output and is
+# DISPLAY ONLY -- pre-formatted human-readable lines the caller prints. Nothing
+# branches on it. That split is the point: the decision is one word, validated
+# against a closed set with a catch-all that REFUSES, and all the free text that
+# could contain anything at all is structurally unable to influence it.
+#
+# WHICH APPROVAL WINS. Approvals are scanned most-recent-first. If ANY of them
+# fully covers the action the verdict is `ok` (an older approval that still
+# holds is still an approval). If none does, the verdict reported is the one
+# from the MOST RECENT approval whose SCOPE matched -- the nearest miss, which
+# is the one whose failure a human actually needs to hear about. Per-approval
+# the order is scope, then deployment, then revision: DESIGN.md's "a merge
+# approval is not permission for an unexpected deployment" is a statement about
+# what was approved, which is more fundamental than whether it has since gone
+# stale, so it is reported first when both are true.
+#
+# SCOPE MATCHING IS A NORMALISED EXACT MATCH -- DISCLOSED LIMIT, NOT AN
+# OVERSIGHT. Normalisation is the same one `fail`'s changed-hypothesis control
+# uses (case-folded, trimmed, internal whitespace collapsed), so re-typing an
+# approved action in different case or spacing still matches. Anything else
+# does NOT match. In particular this is deliberately NOT a substring or prefix
+# test: under a prefix test an approval scoped "merge PR 12" would cover
+# "merge PR 12 and deploy to production", which is precisely the escalation
+# DESIGN.md forbids. The cost is that a caller who paraphrases the action gets
+# told it is not covered and has to ask again; that is the safe direction, and
+# it is the direction this whole subcommand is built to fail in.
+#
+# THE NON-GIT CASE, DECIDED DELIBERATELY. compute_snapshot() returns the fixed
+# string $NO_GIT_SNAPSHOT when it cannot identify the code at all, and two such
+# values compare EQUAL for every possible state of the code (see the note above
+# compute_snapshot). Treating that match as "the revision is unchanged" would be
+# this project's entire defect class -- an unavailable input becoming a value
+# that means "the condition is satisfied" -- in the one place where the
+# condition being satisfied authorises an action. So a placeholder on EITHER
+# side yields `unverifiable`, which the caller reports as its own nonzero exit.
+# It is deliberately NOT folded into `revision`: "the code moved" and "we could
+# not tell whether the code moved" are different claims and a human answering
+# the question needs to know which one they are looking at. This does mean that
+# in a project with no version control check-approval can never answer `ok`.
+# That is the intended degradation: it degrades to "ask a human every time",
+# i.e. to the behaviour before this mechanism existed, never to "proceed".
+# `resume` handles the same placeholder by warning rather than refusing, and the
+# difference is not an inconsistency: `resume` is reporting on work that is
+# resuming either way, while `check-approval` exists solely to answer "may I?",
+# and the honest answer to "may I?" when you cannot tell is no.
+#
+# WHAT A VALID APPROVAL RECORD MUST CARRY. decision_id, scope, target_revision
+# and approved_by as non-empty strings, deployment_impact as a real JSON
+# boolean, and conditions as either absent/null or a string. `record-approval`
+# writes all of them, validated, in one atomic object, so a record missing or
+# mistyping any of them is corruption and is refused by name. Note in
+# particular that deployment_impact is checked for the BOOLEAN type rather than
+# for truthiness: a deployment_impact of the string "no", or of null, must not
+# be read as `false` and quietly authorise a deployment.
+# ABSENT-CASE: no `approvals` key at all, or null, is require_object_array's
+# legitimate legacy/never-approved record and yields the `none` verdict, which
+# is a refusal -- so the absent case is safe here as well as legitimate.
+#
+# ONE CORRUPT ENTRY REFUSES EVERY SCOPE ON THAT TASK -- DISCLOSED LIMIT, NOT AN
+# OVERSIGHT. The `$bad` selector below runs over the WHOLE approvals array
+# before any scope matching, so a single malformed record makes check-approval
+# refuse every action on that task, including scopes that a perfectly good
+# approval sitting beside it does cover; that is the same fail-closed
+# whole-array validation `attempts`, `checkpoints` and `external_actions`
+# already use, and narrowing it to "only the entry whose scope you asked about"
+# would leave the untrusted remainder unexamined in the one read whose answer is
+# permission. The cost is availability -- one bad entry blocks every approval
+# check on that task until the record is repaired -- and that is the cost being
+# chosen here, not one being overlooked.
+APPROVAL_VERDICT=""
+APPROVAL_DETAIL=""
+require_approval_verdict() {
+  local id="$1" scope="$2" deployment="$3" current_rev="$4" raw
+  require_object_array "$id" "approvals"
+  raw=$(jq -r --arg id "$id" --arg scope "$scope" --arg dep "$deployment" \
+    --arg cur "$current_rev" --arg nogit "$NO_GIT_SNAPSHOT" '
+    def norm: ascii_downcase | gsub("\\s+"; " ") | sub("^ +"; "") | sub(" +$"; "");
+    ((.tasks[$id].approvals) // []) as $a
+    | [ $a[] | select(
+          ((has("decision_id") | not) or ((.decision_id | type) != "string") or ((.decision_id | length) == 0))
+          or ((has("scope") | not) or ((.scope | type) != "string") or ((.scope | length) == 0))
+          or ((has("target_revision") | not) or ((.target_revision | type) != "string") or ((.target_revision | length) == 0))
+          or ((has("approved_by") | not) or ((.approved_by | type) != "string") or ((.approved_by | length) == 0))
+          or ((has("deployment_impact") | not) or ((.deployment_impact | type) != "boolean"))
+          or (has("conditions") and (.conditions != null) and ((.conditions | type) != "string"))
+      ) ] as $bad
+    | if ($bad | length) > 0
+      then "bad:entries that do not carry a usable decision_id / scope / target_revision / approved_by / deployment_impact / conditions — " + ($bad | tojson | .[0:200])
+      elif ($a | length) == 0 then "none"
+      else ([ $a[] | select((.scope | norm) == ($scope | norm)) ] | reverse) as $cov
+        | if ($cov | length) == 0
+          then "scope\n  recorded approval scopes for this task, none of which matches that action:\n"
+               + ([ $a[] | "    - \"" + .scope + "\" (decision " + .decision_id + ", deployment_impact: " + (.deployment_impact | tostring) + ")" ] | join("\n"))
+          else ([ $cov[] |
+                 if ($dep == "yes" and .deployment_impact == false)
+                 then "deployment\n  matching approval: \"" + .scope + "\" (decision " + .decision_id + ", approved by " + .approved_by + ")\n  that approval was recorded with deployment_impact: false, and the action you described HAS deployment impact."
+                 elif (.target_revision == $nogit) or ($cur == $nogit)
+                 then "unverifiable\n  matching approval: \"" + .scope + "\" (decision " + .decision_id + ")\n  revision when approved: " + .target_revision + "\n  revision now:          " + $cur
+                 elif (.target_revision != $cur)
+                 then "revision\n  matching approval: \"" + .scope + "\" (decision " + .decision_id + ", approved by " + .approved_by + ")\n  revision when approved: " + .target_revision + "\n  revision now:          " + $cur
+                 else "ok\n  decision:    " + .decision_id
+                      + "\n  approved by: " + .approved_by
+                      + "\n  scope:       \"" + .scope + "\""
+                      + "\n  revision:    " + .target_revision
+                      + "\n  conditions:  " + (if (.conditions | type) == "string" and ((.conditions | length) > 0) then .conditions else "(none recorded)" end)
+                 end ]) as $outcomes
+            | ([ $outcomes[] | select(startswith("ok\n")) ]) as $good
+            | if ($good | length) > 0 then $good[0] else $outcomes[0] end
+          end
+      end
+  ' "$STATE" 2>/dev/null)
+
+  # CRLF NORMALISATION, AND WHY IT IS NOT OPTIONAL HERE. This is the only read
+  # in this file whose jq output is deliberately MULTI-LINE, and multi-line is
+  # where this project's platform bites: the jq build on the primary platform
+  # (Windows, run under Git Bash) writes stdout in TEXT MODE, so every `\n` the
+  # program emits arrives as CR LF. The existing single-line reads never had to
+  # care -- MSYS bash strips a trailing CRLF from a command substitution -- but
+  # an INTERNAL newline keeps its CR, which would leave the verdict word as
+  # "ok\r" and send a perfectly good approval down the catch-all into a
+  # corruption refusal. (Verified, not assumed: `jq -r '"ok\n x"'` through
+  # `$( )` and `od -c` shows `o k \r \n`.) Only CRLF PAIRS are collapsed, so a
+  # CR a caller genuinely typed into a scope or approver string survives; that
+  # text is display-only anyway and nothing branches on it. This is the same
+  # hazard `start`'s dependency loop documents for PIPED jq, in its text-mode
+  # form, which reaches `$( )` too.
+  raw="${raw//$'\r'$'\n'/$'\n'}"
+
+  # Split the decision word off the display text. `${raw%%$'\n'*}` is the whole
+  # string when there is no newline at all, which is exactly what the one-word
+  # verdicts ("none") and a jq that produced nothing both look like -- and both
+  # are handled correctly by the case below (accepted, and refused,
+  # respectively).
+  APPROVAL_VERDICT="${raw%%$'\n'*}"
+  if [ "$APPROVAL_VERDICT" = "$raw" ]; then
+    APPROVAL_DETAIL=""
+  else
+    APPROVAL_DETAIL="${raw#*$'\n'}"
+  fi
+
+  case "$APPROVAL_VERDICT" in
+    ok|none|scope|deployment|revision|unverifiable) return 0 ;;
+    bad:*) state_field_fail "$id" "approvals" "every entry to carry a non-empty string decision_id, scope, target_revision and approved_by, a boolean deployment_impact, and conditions that are absent, null or a string" "${APPROVAL_VERDICT#bad:}" ;;
+    # EXPLICIT CATCH-ALL, per this section's rule. An empty verdict means jq
+    # itself failed and `2>/dev/null` swallowed its message; any other word
+    # means this program was edited without extending the case above. Both
+    # REFUSE -- there is no route from an unreadable state file to `ok`.
+    *)     state_field_fail "$id" "approvals" "every entry to carry a non-empty string decision_id, scope, target_revision and approved_by, a boolean deployment_impact, and conditions that are absent, null or a string" "unreadable — the task record could not be parsed as JSON, so no approval verdict was produced" ;;
+  esac
 }
 
 # NOTE: the old `require_task` lived here. Every call site now uses

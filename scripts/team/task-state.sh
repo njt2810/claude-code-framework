@@ -29,6 +29,19 @@
 #   task-state.sh unblock <id>
 #   task-state.sh pause <id> --next-action "<exact next action text>"
 #   task-state.sh resume <id>
+#   task-state.sh record-decision <id> --blocked "<what is blocked>"
+#                 --why "<why, including what was checked>"
+#                 --recommend "<recommended option and reason>"
+#                 --options "<each option's benefit and main pitfall>"
+#                 --impact "<impact on scope, cost, and delivery>"
+#                 --question "<one clear question>"
+#   task-state.sh record-approval <id> --decision <decision-id>
+#                 --scope "<what is approved>" --approved-by "<who/what approved>"
+#                 --deployment-impact yes|no [--conditions "<text>"]
+#   task-state.sh record-rejection <id> --decision <decision-id>
+#                 --rejected-by "<who/what rejected>" --reason "<why>"
+#   task-state.sh check-approval <id> --scope "<what you are about to do>"
+#                 [--deployment]
 #   task-state.sh record-external-action <id> --key <idempotency-key>
 #                 --description "<what was done>"
 #   task-state.sh check-external-action <id> --key <idempotency-key>
@@ -351,20 +364,201 @@
 # tests/task-state-smoke.sh against a passing control task, so the refusal is
 # not vacuous).
 #
+# Decision cards + scoped approvals (Part 2.3) implement DESIGN.md's "User
+# experience" ("Proceed automatically with reversible work within the agreed
+# plan and budget. Ask only for missing access or material changes...") and its
+# approval clause in full:
+#
+#   "A decision card contains: 1. What is blocked. 2. Why, including what was
+#    checked. 3. Recommended option and reason. 4. Each option's benefit and
+#    main pitfall. 5. Impact on scope, cost, and delivery. 6. One clear
+#    question."
+#
+#   "Persist approvals with their scope, target revision, and relevant
+#    conditions. Ask again only when those conditions materially change. A
+#    MERGE APPROVAL IS NOT PERMISSION FOR AN UNEXPECTED DEPLOYMENT."
+#
+# ROUTINE REPAIRS PROCEED; MATERIAL DEVIATIONS WAIT. This part adds NOTHING to
+# the ordinary repair path. A failed attempt inside budget still goes `fail` ->
+# `building` and carries straight on, with no card, no approval and no extra
+# step -- that is the "routine repairs proceed" half of this part's acceptance
+# criterion and it is asserted by its own test. A decision card is raised
+# EXPLICITLY, by calling `record-decision`, for a MATERIAL deviation. Nothing
+# here raises one automatically, and nothing here makes the routine path
+# harder; if it ever does, that is a defect against this paragraph.
+#
+#   record-decision <id> --blocked --why --recommend --options --impact
+#                        --question
+#     Allowed from planned, building or checking. Appends a card to the task's
+#     own `decisions` array ({decision_id, blocked, why, recommend, options,
+#     impact, question, status, raised_at, code_snapshot, decision_from}) and
+#     moves the task to the new `awaiting-decision` state. `decision_id` is
+#     "<task-id>-d<N>", stable and quotable in later commands.
+#     ALL SIX FLAGS ARE REQUIRED and must carry actual content (whitespace-only
+#     is refused exactly as empty is). That is not pedantry: DESIGN.md
+#     enumerates six elements, and a card missing its recommendation or its
+#     question is not a decision card -- it is a shrug that hands the whole
+#     problem back to the person least equipped to answer it. The point of the
+#     mechanism is that the team has already done the work of framing the
+#     choice before it interrupts.
+#
+#   `awaiting-decision` is a REAL STOP, on exactly the same terms as
+#   `needs-reassessment`: `start`, `check`, `complete`, `fail`, `block` and
+#   `pause` are all refused from it, each pointing at the two commands that can
+#   answer the card, and complete-gate.sh refuses it too (its check 1 requires
+#   state `checking`; proven against a passing control in
+#   tests/task-state-smoke.sh, so the refusal is not vacuous). `record-decision`
+#   itself is refused from `awaiting-decision`, so exactly one card can be open
+#   at a time, and from `needs-reassessment`, so a frozen task cannot be moved
+#   sideways into a different freeze. The indirect doors are closed the same way
+#   they are for `needs-reassessment`: `unblock` requires `blocked` and `resume`
+#   requires `paused`, and neither state is reachable from here because `block`
+#   and `pause` themselves refuse it.
+#
+#   ONE DELIBERATE DIFFERENCE FROM `needs-reassessment`, stated rather than left
+#   to be discovered: record-assignment, record-evidence and
+#   record-external-action are NOT refused from `awaiting-decision`. They are
+#   refused from `needs-reassessment` because a task whose attempt budget is
+#   exhausted should have nothing legitimate accreting on its record at all. A
+#   task awaiting a decision is a different situation: it is waiting on a HUMAN,
+#   while the session around it legitimately keeps recording what it checked
+#   (DESIGN.md's card element 2 is "why, INCLUDING WHAT WAS CHECKED" -- that is
+#   evidence) and what external actions have already happened, which is exactly
+#   the wrap-up sequence `pause` exists to support. This follows the
+#   `blocked`/`paused` precedent, where the same three stay available for the
+#   same reason. What is frozen here is the WORK, not the audit trail.
+#
+#   record-approval <id> --decision <decision-id> --scope "..."
+#                        --approved-by "..." --deployment-impact yes|no
+#                        [--conditions "..."]
+#   record-rejection <id> --decision <decision-id> --rejected-by "..."
+#                         --reason "..."
+#     The ONLY two exits from `awaiting-decision`. Both mark the open card
+#     resolved (`status` becomes "approved" or "rejected") and restore the exact
+#     state the task was in when the card was raised -- `decision_from`, read
+#     through the same require_restorable_state enum guard `unblock` and
+#     `resume` use, so a hand-edited restore target cannot send the task
+#     straight to `done`.
+#     REJECTION IS FIRST-CLASS, not an afterthought: a decision answered "no"
+#     is answered, and it must not be left looking unanswered. It records who
+#     rejected and why, in the task's own `rejections` array, and the work
+#     resumes -- down some other path, which is the point of having asked.
+#     `--approved-by` / `--rejected-by` are REQUIRED and non-blank: an
+#     unattributed approval is precisely the "conceal failures" pattern
+#     DESIGN.md's "Recovery and learning" forbids, in the one record whose whole
+#     job is to say a human agreed to something.
+#     `--deployment-impact yes|no` is REQUIRED, not a bare optional flag.
+#     DESIGN.md says outright that a merge approval is not permission for an
+#     unexpected deployment, so whether an approval carries deployment impact
+#     has to be an EXPLICIT recorded property rather than something inferred
+#     later from the scope text. Optional would make one of the two answers the
+#     silent default, and a silent default on this particular question is the
+#     failure DESIGN.md names.
+#     The TARGET REVISION is not a flag at all: it is computed by
+#     compute_snapshot() at approval time, the same way every other code
+#     identity in this subsystem is. An approval is for the code as it actually
+#     stood when it was granted, and letting a caller type that value in would
+#     make the staleness check depend on the honesty of the thing being checked.
+#
+#   check-approval <id> --scope "<what you are about to do>" [--deployment]
+#     READ-ONLY (takes no lock, never writes -- the same reasoning as
+#     check-external-action: a read-only probe must not be able to block real
+#     work). It answers ONE question -- "is the action I am about to take
+#     covered by a valid approval?" -- and it answers it with its EXIT STATUS:
+#
+#       EXIT 0 => COVERED. A valid approval covers this action's scope, its
+#                 revision and its deployment impact => PROCEED.
+#       EXIT 1 => NOT COVERED: this task has no approval records at all.
+#       EXIT 2 => BAD USAGE (e.g. no --scope) => UNDETERMINED, do NOT proceed.
+#       EXIT 3 => THE TASK DOES NOT EXIST, or its record cannot be read =>
+#                 UNDETERMINED, do NOT proceed; fix the task id and re-check.
+#       EXIT 4 => NOT COVERED: approvals exist, but none of their scopes covers
+#                 the action described.
+#       EXIT 5 => NOT COVERED: an approval covers the scope, but THE REVISION
+#                 HAS CHANGED since it was granted => reassess and ask again.
+#       EXIT 6 => NOT COVERED: an approval covers the scope, but this action has
+#                 DEPLOYMENT IMPACT that the approval did not carry. This is
+#                 DESIGN.md's "a merge approval is not permission for an
+#                 unexpected deployment", enforced.
+#       EXIT 7 => UNDETERMINED: an approval covers the scope, but the revision
+#                 could not be established (no version control), so whether it
+#                 is still current cannot be answered => do NOT proceed.
+#
+#     *** NONZERO NEVER MEANS "APPROVED". *** Every single nonzero code above
+#     means "do NOT take the action; ask". There is no input -- absent,
+#     corrupt, unreadable, or merely unmatched -- that this subcommand turns
+#     into permission; the only verdict that produces exit 0 is one validated
+#     approval record that matched on all three of scope, deployment impact and
+#     revision. This is the same discipline, for the same reason, as
+#     check-external-action's "NONZERO NEVER MEANS ALREADY DONE" contract: a
+#     caller branching on exit status is the natural shell idiom, and an
+#     exit-code contract that reads the wrong way round in one edge case is how
+#     a safety mechanism becomes the cause of the thing it was built to stop.
+#     Every case also prints a distinguishing line -- APPROVAL-COVERS or
+#     NOT-COVERED/UNDETERMINED plus the reason -- so a caller reading output
+#     rather than exit status can tell them apart too.
+#
+#     THREE DISCLOSED LIMITS, so nothing here is overclaimed:
+#       1. Scope matching is a NORMALISED EXACT MATCH (case-folded, trimmed,
+#          internal whitespace collapsed), never a substring or prefix test --
+#          a prefix test would let "merge PR 12" cover "merge PR 12 and deploy
+#          to production". A paraphrased action therefore reports NOT COVERED
+#          and you ask again. That is the safe direction on purpose.
+#       2. `--conditions` is free text. check-approval PRINTS the recorded
+#          conditions verbatim on the exit-0 path and states plainly that it did
+#          not and cannot evaluate them; satisfying them is the caller's job.
+#          Exit 0 means exactly "scope, revision and deployment impact are
+#          covered", and it says so rather than implying more.
+#       3. ONE CORRUPT ENTRY REFUSES EVERY SCOPE ON THAT TASK (exit 3), not
+#          just that entry's own scope -- the whole approvals array is
+#          validated before any scope matching, so a single malformed record
+#          blocks approval checks a perfectly good approval beside it would
+#          have covered. Same fail-closed whole-array validation `attempts`,
+#          `checkpoints` and `external_actions` already use; narrowing it
+#          would leave the untrusted remainder unexamined in the one read
+#          whose answer is permission. The cost is availability -- one bad
+#          record blocks every approval check on that task until it is
+#          repaired -- and that is the cost being chosen, not overlooked.
+#
+#     THE NON-GIT CASE (exit 7), decided deliberately: compute_snapshot()
+#     returns the constant "no-git-repository" when it cannot identify the code,
+#     and two such values match for every possible state of the code. Reading
+#     that match as "the revision is unchanged" would be this project's whole
+#     defect class landing in the one place where "condition satisfied"
+#     authorises an action, so it is its own outcome instead. It is kept
+#     distinct from exit 5 because "the code moved" and "we could not tell
+#     whether the code moved" are different claims. In a project without version
+#     control this means check-approval can never answer 0 -- the intended
+#     degradation, since it degrades to "ask a human every time", never to
+#     "proceed". (`resume` warns rather than refusing on the same placeholder;
+#     that is not an inconsistency -- `resume` reports on work that is resuming
+#     either way, while check-approval exists solely to answer "may I?", and the
+#     honest answer to "may I?" when you cannot tell is no.)
+#
 # States: planned -> building -> checking -> done
 #         (any of planned/building/checking) -> blocked -> (restored state)
 #         (any of planned/building/checking) -> paused  -> (restored state)
+#         (any of planned/building/checking) -> awaiting-decision
+#                                                       -> (restored state)
 #         (building|checking) --fail--> building              (attempts remain)
 #         (building|checking) --fail--> needs-reassessment    (budget exhausted)
 #         needs-reassessment --reassess--> building|checking  (the ONLY exit)
+#         awaiting-decision --record-approval|record-rejection--> (restored
+#                                                     state; the ONLY exits)
 #
 # Exit codes: 0 ok
 #             1 invalid transition / not found / duplicate id / unmet dependency
 #               / a refused repair attempt (unchanged hypothesis)
 #               (also: check-external-action's "key NOT recorded, PROCEED")
+#               (also: check-approval's "no approval recorded at all")
 #             2 bad usage / missing jq dependency
 #             3 check-external-action ONLY: the task does not exist, so
 #               "already recorded?" could not be determined -- do NOT proceed
+#             3 check-approval ONLY: the task does not exist or its record is
+#               unreadable -- UNDETERMINED, do NOT proceed
+#             4/5/6/7 check-approval ONLY: scope not covered / revision changed
+#               / deployment impact not covered / revision undeterminable --
+#               all four mean do NOT proceed
 #
 # Every transition is atomic: written to a temp file in the same directory as
 # the state file, then mv'd into place — no command can leave the state file
@@ -375,7 +569,7 @@
 #
 # Every mutating command (create/start/check/complete/fail/reassess/block/
 # unblock/pause/resume/record-assignment/record-evidence/
-# record-external-action) also
+# record-external-action/record-decision/record-approval/record-rejection) also
 # holds an exclusive lock across its ENTIRE read-modify-write sequence — not
 # just the final atomic_update write — so concurrent invocations (e.g. a lead
 # plus several builder/verifier subagents all touching the same project's
@@ -437,8 +631,19 @@ CMD="${1:-}"
 # `check-external-action` is deliberately ABSENT from this list: it is
 # strictly read-only (it never calls atomic_update) so it needs no lock, and
 # taking one would let a read-only idempotency probe block real work.
+# `check-approval` (Part 2.3) is absent for exactly the same two reasons, and
+# the reasoning is worth restating rather than inferring: it never calls
+# atomic_update, and it is the probe a caller is expected to run BEFORE every
+# action it is unsure about, so making it contend for the project-wide lock
+# would turn "check whether you are allowed" into a source of delay and give
+# callers a reason to skip it. It reads the state file without a lock, which
+# is safe because atomic_update replaces that file by rename: a concurrent
+# write is never half-visible, so the worst case is that check-approval
+# answers against the state as of an instant slightly before or after a
+# concurrent record-approval -- and both of those are states this answer was
+# legitimately true for.
 case "$CMD" in
-  create|start|check|complete|fail|reassess|block|unblock|pause|resume|record-assignment|record-evidence|record-external-action) acquire_lock ;;
+  create|start|check|complete|fail|reassess|block|unblock|pause|resume|record-assignment|record-evidence|record-external-action|record-decision|record-approval|record-rejection) acquire_lock ;;
 esac
 
 case "$CMD" in
@@ -521,6 +726,7 @@ case "$CMD" in
         attempts_used: 0,
         blocked_from: null, blocked_reason: null, resume_condition: null,
         paused_from: null,
+        decision_from: null,
         created_at: $now, updated_at: $now,
         history: [{from: null, to: "planned", at: $now}],
         assignments: [],
@@ -528,7 +734,10 @@ case "$CMD" in
         checkpoints: [],
         external_actions: [],
         attempts: [],
-        reassessments: []
+        reassessments: [],
+        decisions: [],
+        approvals: [],
+        rejections: []
       }
     '
     echo "CREATED $ID \"$TITLE\" state=planned"
@@ -542,6 +751,8 @@ case "$CMD" in
     if [ "$CUR_STATE" != "planned" ]; then
       if [ "$CUR_STATE" = "needs-reassessment" ]; then
         reassessment_required_error "$ID" "start"
+      elif [ "$CUR_STATE" = "awaiting-decision" ]; then
+        decision_required_error "$ID" "start"
       else
         echo "ERROR: task '$ID' is in state '$CUR_STATE', cannot start (must be 'planned')" >&2
       fi
@@ -619,6 +830,8 @@ case "$CMD" in
     if [ "$CUR_STATE" != "building" ]; then
       if [ "$CUR_STATE" = "needs-reassessment" ]; then
         reassessment_required_error "$ID" "move to checking"
+      elif [ "$CUR_STATE" = "awaiting-decision" ]; then
+        decision_required_error "$ID" "move to checking"
       else
         echo "ERROR: task '$ID' is in state '$CUR_STATE', cannot move to checking (must be 'building')" >&2
       fi
@@ -685,6 +898,8 @@ case "$CMD" in
     if [ "$CUR_STATE" != "checking" ]; then
       if [ "$CUR_STATE" = "needs-reassessment" ]; then
         reassessment_required_error "$ID" "complete"
+      elif [ "$CUR_STATE" = "awaiting-decision" ]; then
+        decision_required_error "$ID" "complete"
       else
         echo "ERROR: task '$ID' is in state '$CUR_STATE', cannot complete (must be 'checking')" >&2
       fi
@@ -742,6 +957,13 @@ case "$CMD" in
       building|checking) ;;
       needs-reassessment)
         reassessment_required_error "$ID" "record another failed attempt"
+        exit 1
+        ;;
+      # The OTHER real stop. A task waiting on a human decision has no attempt
+      # in flight to fail either, and letting `fail` run from here would burn
+      # attempt budget against a question nobody has answered yet.
+      awaiting-decision)
+        decision_required_error "$ID" "record another failed attempt"
         exit 1
         ;;
       *)
@@ -1061,6 +1283,10 @@ case "$CMD" in
       # "needs-reassessment", unblock would restore THAT, not a working
       # state. Refusing outright keeps the stop unambiguous either way.
       needs-reassessment) reassessment_required_error "$ID" "block"; exit 1 ;;
+      # Same closure for the Part 2.3 stop: if block accepted an
+      # awaiting-decision task, `unblock` would become a second exit from it --
+      # and worse, one that discards the open card without answering it.
+      awaiting-decision) decision_required_error "$ID" "block"; exit 1 ;;
       *) echo "ERROR: task '$ID' is in state '$CUR_STATE', cannot block from this state" >&2; exit 1 ;;
     esac
 
@@ -1155,6 +1381,12 @@ case "$CMD" in
       # 'needs-reassessment' either.
       needs-reassessment)
         reassessment_required_error "$ID" "pause"
+        exit 1
+        ;;
+      # Same closure again: pause is refused, so `resume` (which requires state
+      # 'paused') can never become an indirect exit from 'awaiting-decision'.
+      awaiting-decision)
+        decision_required_error "$ID" "pause"
         exit 1
         ;;
       *)
@@ -1329,6 +1561,473 @@ case "$CMD" in
       echo "  snapshot now:      $CURRENT_SNAPSHOT"
       echo "  The recorded next action above may no longer be valid, because the code moved while the task was paused. Re-check the current code against that next action before acting on it."
     fi
+    ;;
+
+  record-decision)
+    # Part 2.3. Raise a decision card and STOP the task on it. See this file's
+    # header for the full contract; the short version is: routine repairs
+    # proceed untouched, a MATERIAL deviation is raised here explicitly and the
+    # task waits in `awaiting-decision` until a human answers.
+    ID="${2:-}"
+    [ -n "$ID" ] || {
+      echo "Usage: task-state.sh record-decision <id> --blocked \"<what is blocked>\" --why \"<why, including what was checked>\" --recommend \"<recommended option and reason>\" --options \"<each option's benefit and main pitfall>\" --impact \"<impact on scope, cost, and delivery>\" --question \"<one clear question>\"" >&2
+      exit 2
+    }
+    if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+
+    DC_BLOCKED=""; DC_WHY=""; DC_RECOMMEND=""; DC_OPTIONS=""; DC_IMPACT=""; DC_QUESTION=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --blocked) [ $# -ge 2 ] || { echo "ERROR: --blocked requires a value" >&2; exit 2; }; DC_BLOCKED="$2"; shift 2 ;;
+        --why) [ $# -ge 2 ] || { echo "ERROR: --why requires a value" >&2; exit 2; }; DC_WHY="$2"; shift 2 ;;
+        --recommend) [ $# -ge 2 ] || { echo "ERROR: --recommend requires a value" >&2; exit 2; }; DC_RECOMMEND="$2"; shift 2 ;;
+        --options) [ $# -ge 2 ] || { echo "ERROR: --options requires a value" >&2; exit 2; }; DC_OPTIONS="$2"; shift 2 ;;
+        --impact) [ $# -ge 2 ] || { echo "ERROR: --impact requires a value" >&2; exit 2; }; DC_IMPACT="$2"; shift 2 ;;
+        --question) [ $# -ge 2 ] || { echo "ERROR: --question requires a value" >&2; exit 2; }; DC_QUESTION="$2"; shift 2 ;;
+        *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+
+    # ALL SIX REQUIRED, all six non-blank, all six checked BEFORE any state
+    # read and before any write -- so a rejected card leaves the state file
+    # byte-for-byte unchanged. DESIGN.md ("User experience") enumerates exactly
+    # these six elements; a card that omits one is not a decision card, and
+    # accepting a partial one would let the mechanism degrade into an
+    # interruption that hands the whole problem back unframed. Whitespace-only
+    # is refused the same way empty is, for the same reason it is everywhere
+    # else here: "   " records a field that merely LOOKS answered.
+    require_nonblank "--blocked" "$DC_BLOCKED" \
+      "DESIGN.md decision card element 1: what is blocked"
+    require_nonblank "--why" "$DC_WHY" \
+      "DESIGN.md decision card element 2: why, including what was checked"
+    require_nonblank "--recommend" "$DC_RECOMMEND" \
+      "DESIGN.md decision card element 3: recommended option and reason — a card with no recommendation asks the least-equipped person to do the team's thinking"
+    require_nonblank "--options" "$DC_OPTIONS" \
+      "DESIGN.md decision card element 4: each option's benefit and main pitfall"
+    require_nonblank "--impact" "$DC_IMPACT" \
+      "DESIGN.md decision card element 5: impact on scope, cost, and delivery"
+    require_nonblank "--question" "$DC_QUESTION" \
+      "DESIGN.md decision card element 6: one clear question — a card with no question cannot be answered"
+
+    require_task_state "$ID"
+    CUR_STATE="$TASK_STATE_VALUE"
+    case "$CUR_STATE" in
+      planned|building|checking) ;;
+      # Only ONE card can be open at a time. Refusing here is what makes "the
+      # latest decisions entry is the open one" true by construction, which is
+      # what require_open_decision relies on.
+      awaiting-decision)
+        echo "ERROR: task '$ID' is already in state 'awaiting-decision' — a decision card is open and unanswered, so a second one cannot be raised on top of it." >&2
+        decision_required_error "$ID" "raise another decision card"
+        exit 1
+        ;;
+      needs-reassessment)
+        reassessment_required_error "$ID" "raise a decision card"
+        exit 1
+        ;;
+      *)
+        echo "ERROR: task '$ID' is in state '$CUR_STATE', cannot raise a decision card from this state (must be one of planned, building, checking)" >&2
+        exit 1
+        ;;
+    esac
+
+    # The array this subcommand appends to and that record-approval /
+    # record-rejection then read a decision out of. Settled here, at the point
+    # it is WRITTEN to, not only where the damage would later be read back --
+    # and its validated length is also what numbers the card.
+    require_object_array "$ID" "decisions"
+    DECISION_ID="$ID-d$((ARRAY_LENGTH + 1))"
+
+    # Snapshot the code AS IT WAS WHEN THE QUESTION WAS ASKED, so a later
+    # reader can see which revision the card's "what was checked" refers to.
+    SNAPSHOT=$(compute_snapshot)
+    NOW=$(now_iso)
+    atomic_update --arg id "$ID" --arg now "$NOW" --arg from "$CUR_STATE" \
+      --arg did "$DECISION_ID" --arg blocked "$DC_BLOCKED" --arg why "$DC_WHY" \
+      --arg recommend "$DC_RECOMMEND" --arg options "$DC_OPTIONS" \
+      --arg impact "$DC_IMPACT" --arg question "$DC_QUESTION" \
+      --arg snapshot "$SNAPSHOT" '
+      .tasks[$id].decisions = ((.tasks[$id].decisions // []) + [{
+          decision_id: $did,
+          blocked: $blocked,
+          why: $why,
+          recommend: $recommend,
+          options: $options,
+          impact: $impact,
+          question: $question,
+          status: "open",
+          raised_at: $now,
+          resolved_at: null,
+          code_snapshot: $snapshot,
+          decision_from: $from
+        }])
+      | .tasks[$id].decision_from = $from
+      | .tasks[$id].state = "awaiting-decision"
+      | .tasks[$id].updated_at = $now
+      | .tasks[$id].history += [{
+          from: $from, to: "awaiting-decision", at: $now,
+          decision_id: $did, question: $question, code_snapshot: $snapshot
+        }]
+    '
+    echo "RECORDED-DECISION $ID decision=$DECISION_ID from=$CUR_STATE state=awaiting-decision snapshot=\"$SNAPSHOT\""
+    # The card is printed in full, in DESIGN.md's own order, because it is a
+    # communication artifact as much as a state record -- the lead is meant to
+    # be able to put this in front of a person unchanged.
+    echo "DECISION CARD $DECISION_ID"
+    echo "  1. BLOCKED:    $DC_BLOCKED"
+    echo "  2. WHY:        $DC_WHY"
+    echo "  3. RECOMMEND:  $DC_RECOMMEND"
+    echo "  4. OPTIONS:    $DC_OPTIONS"
+    echo "  5. IMPACT:     $DC_IMPACT"
+    echo "  6. QUESTION:   $DC_QUESTION"
+    echo "THIS TASK IS NOW STOPPED. No start, check, complete, fail, block or pause is accepted, and complete-gate.sh refuses it too. Answer the card to release it:"
+    echo "  approve: task-state.sh record-approval $ID --decision $DECISION_ID --scope \"<what is approved>\" --approved-by \"<who/what approved>\" --deployment-impact yes|no [--conditions \"<text>\"]"
+    echo "  reject:  task-state.sh record-rejection $ID --decision $DECISION_ID --rejected-by \"<who/what rejected>\" --reason \"<why>\""
+    ;;
+
+  record-approval)
+    # Part 2.3. One of the two exits from `awaiting-decision`. Records a SCOPED
+    # approval -- scope, target revision, conditions, who approved, and whether
+    # it carries deployment impact -- and restores the state the task was in
+    # when the card was raised.
+    ID="${2:-}"
+    [ -n "$ID" ] || {
+      echo "Usage: task-state.sh record-approval <id> --decision <decision-id> --scope \"<what is approved>\" --approved-by \"<who/what approved>\" --deployment-impact yes|no [--conditions \"<text>\"]" >&2
+      exit 2
+    }
+    if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+
+    AP_DECISION=""; AP_SCOPE=""; AP_BY=""; AP_CONDITIONS=""; AP_CONDITIONS_GIVEN=""
+    AP_DEPLOYMENT=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --decision) [ $# -ge 2 ] || { echo "ERROR: --decision requires a value" >&2; exit 2; }; AP_DECISION="$2"; shift 2 ;;
+        --scope) [ $# -ge 2 ] || { echo "ERROR: --scope requires a value" >&2; exit 2; }; AP_SCOPE="$2"; shift 2 ;;
+        --approved-by) [ $# -ge 2 ] || { echo "ERROR: --approved-by requires a value" >&2; exit 2; }; AP_BY="$2"; shift 2 ;;
+        --conditions) [ $# -ge 2 ] || { echo "ERROR: --conditions requires a value" >&2; exit 2; }; AP_CONDITIONS="$2"; AP_CONDITIONS_GIVEN=1; shift 2 ;;
+        --deployment-impact)
+          [ $# -ge 2 ] || { echo "ERROR: --deployment-impact requires a value (yes or no)" >&2; exit 2; }
+          case "$2" in
+            yes) AP_DEPLOYMENT="true" ;;
+            no)  AP_DEPLOYMENT="false" ;;
+            *)   echo "ERROR: --deployment-impact must be 'yes' or 'no' (got: $2)" >&2; exit 2 ;;
+          esac
+          shift 2
+          ;;
+        *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+
+    require_nonblank "--decision" "$AP_DECISION" \
+      "an approval must say which decision card it answers"
+    require_nonblank "--scope" "$AP_SCOPE" \
+      "an approval with no recorded scope is an approval of everything, which is not a scoped approval at all"
+    require_nonblank "--approved-by" "$AP_BY" \
+      "an unattributed approval is exactly the 'conceal failures' pattern DESIGN.md forbids, in the one record whose job is to say a human agreed"
+    if [ -n "$AP_CONDITIONS_GIVEN" ]; then
+      require_nonblank "--conditions" "$AP_CONDITIONS" \
+        "omit --conditions entirely to record no conditions; a blank one records a condition that merely looks stated"
+    fi
+    # REQUIRED, deliberately, and deliberately yes/no rather than a bare
+    # presence flag. DESIGN.md: "A merge approval is not permission for an
+    # unexpected deployment." Whether an approval carries deployment impact is
+    # therefore a property that has to be STATED, not inferred later from the
+    # scope text and not silently defaulted -- a bare flag would make one of the
+    # two answers the default, and a silent default on this exact question is
+    # the failure DESIGN.md names.
+    [ -n "$AP_DEPLOYMENT" ] || {
+      echo "ERROR: --deployment-impact is required and must be 'yes' or 'no'. DESIGN.md: a merge approval is not permission for an unexpected deployment — whether this approval covers deployment has to be stated explicitly, not inferred from the scope text later." >&2
+      exit 2
+    }
+
+    require_task_state "$ID"
+    CUR_STATE="$TASK_STATE_VALUE"
+    if [ "$CUR_STATE" != "awaiting-decision" ]; then
+      echo "ERROR: task '$ID' is in state '$CUR_STATE', cannot record an approval (must be 'awaiting-decision'). An approval answers an OPEN decision card; raise one with 'task-state.sh record-decision $ID --blocked ... --why ... --recommend ... --options ... --impact ... --question ...' if a material deviation genuinely needs one." >&2
+      exit 1
+    fi
+
+    require_open_decision "$ID"
+    if [ "$AP_DECISION" != "$OPEN_DECISION_ID" ]; then
+      echo "ERROR: task '$ID' — --decision '$AP_DECISION' does not name the decision card this task is waiting on, which is '$OPEN_DECISION_ID'. Refusing this approval — nothing was changed." >&2
+      echo "  An approval recorded against the wrong card would resolve a question nobody asked and leave the real one open. Re-run with --decision $OPEN_DECISION_ID, or run 'task-state.sh status $ID' to read the open card." >&2
+      exit 1
+    fi
+
+    # Same enum guard `unblock` and `resume` use on blocked_from/paused_from,
+    # for the same reason: `record-decision` only ever records
+    # planned/building/checking, and an unvalidated restore target would let a
+    # hand-edited decision_from move the task straight to `done` -- past
+    # `checking`, past complete-gate.sh, past the entire verification contract.
+    require_restorable_state "$ID" "decision_from"
+    RESTORE="$RESTORE_STATE"
+    if [ "$RESTORE" = "missing" ]; then
+      echo "ERROR: task '$ID' has no recorded prior state to restore to" >&2
+      exit 1
+    fi
+    require_appendable_array "$ID" "approvals"
+
+    # THE TARGET REVISION IS COMPUTED, NEVER SUPPLIED. An approval is for the
+    # code as it actually stood when it was granted; letting a caller type that
+    # value in would make the staleness check depend on the honesty of the
+    # thing being checked. Same compute_snapshot() every other code identity in
+    # this subsystem uses -- including its "no-git-repository" placeholder,
+    # which check-approval detects and reports as UNDETERMINED rather than
+    # matching against itself and claiming the revision is unchanged.
+    TARGET_REVISION=$(compute_snapshot)
+    NOW=$(now_iso)
+    atomic_update --arg id "$ID" --arg now "$NOW" --arg did "$AP_DECISION" \
+      --arg scope "$AP_SCOPE" --arg by "$AP_BY" --arg conditions "$AP_CONDITIONS" \
+      --argjson deployment "$AP_DEPLOYMENT" --arg revision "$TARGET_REVISION" \
+      --arg restore "$RESTORE" '
+      (if $conditions == "" then null else $conditions end) as $conditions_val
+      | .tasks[$id].approvals = ((.tasks[$id].approvals // []) + [{
+          decision_id: $did,
+          scope: $scope,
+          target_revision: $revision,
+          conditions: $conditions_val,
+          approved_by: $by,
+          deployment_impact: $deployment,
+          approved_at: $now
+        }])
+      | .tasks[$id].decisions = [ .tasks[$id].decisions[]
+          | if .decision_id == $did then (.status = "approved" | .resolved_at = $now) else . end ]
+      | .tasks[$id].decision_from = null
+      | .tasks[$id].state = $restore
+      | .tasks[$id].updated_at = $now
+      | .tasks[$id].history += [{
+          from: "awaiting-decision", to: $restore, at: $now,
+          decision_id: $did, resolution: "approved",
+          scope: $scope, approved_by: $by,
+          deployment_impact: $deployment,
+          target_revision: $revision,
+          conditions: $conditions_val
+        }]
+    '
+    echo "RECORDED-APPROVAL $ID decision=$AP_DECISION scope=\"$AP_SCOPE\" approved_by=\"$AP_BY\" deployment_impact=$AP_DEPLOYMENT revision=\"$TARGET_REVISION\" state=$RESTORE"
+    if [ -n "$AP_CONDITIONS" ]; then
+      echo "CONDITIONS: $AP_CONDITIONS"
+      echo "  Recorded verbatim. task-state.sh does NOT evaluate conditions — check-approval prints them back and says so; satisfying them is the caller's job."
+    fi
+    if [ "$AP_DEPLOYMENT" = "false" ]; then
+      echo "NOTE: this approval does NOT cover deployment. 'check-approval $ID --scope \"...\" --deployment' will refuse against it (exit 6). DESIGN.md: a merge approval is not permission for an unexpected deployment."
+    fi
+    echo "SCOPE MATCHING IS AN EXACT (normalised) MATCH: a later 'check-approval $ID --scope \"...\"' is covered by this approval only if the scope text matches \"$AP_SCOPE\" up to case and whitespace. A paraphrase reports NOT COVERED and you will be asked again."
+    ;;
+
+  record-rejection)
+    # Part 2.3. The OTHER exit from `awaiting-decision`. A decision answered
+    # "no" is answered: it is recorded, attributed and reasoned, and it must
+    # never be left looking like an unanswered card. The work resumes in the
+    # state it was raised from -- down some other path, which is the point of
+    # having asked.
+    ID="${2:-}"
+    [ -n "$ID" ] || {
+      echo "Usage: task-state.sh record-rejection <id> --decision <decision-id> --rejected-by \"<who/what rejected>\" --reason \"<why>\"" >&2
+      exit 2
+    }
+    if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+
+    RJ_DECISION=""; RJ_BY=""; RJ_REASON=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --decision) [ $# -ge 2 ] || { echo "ERROR: --decision requires a value" >&2; exit 2; }; RJ_DECISION="$2"; shift 2 ;;
+        --rejected-by) [ $# -ge 2 ] || { echo "ERROR: --rejected-by requires a value" >&2; exit 2; }; RJ_BY="$2"; shift 2 ;;
+        --reason) [ $# -ge 2 ] || { echo "ERROR: --reason requires a value" >&2; exit 2; }; RJ_REASON="$2"; shift 2 ;;
+        *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+
+    require_nonblank "--decision" "$RJ_DECISION" \
+      "a rejection must say which decision card it answers"
+    require_nonblank "--rejected-by" "$RJ_BY" \
+      "an unattributed rejection is as unreviewable later as an unattributed approval"
+    require_nonblank "--reason" "$RJ_REASON" \
+      "a rejection with no recorded reason tells the next attempt nothing about why this option was refused"
+
+    require_task_state "$ID"
+    CUR_STATE="$TASK_STATE_VALUE"
+    if [ "$CUR_STATE" != "awaiting-decision" ]; then
+      echo "ERROR: task '$ID' is in state '$CUR_STATE', cannot record a rejection (must be 'awaiting-decision'). A rejection answers an OPEN decision card." >&2
+      exit 1
+    fi
+
+    require_open_decision "$ID"
+    if [ "$RJ_DECISION" != "$OPEN_DECISION_ID" ]; then
+      echo "ERROR: task '$ID' — --decision '$RJ_DECISION' does not name the decision card this task is waiting on, which is '$OPEN_DECISION_ID'. Refusing this rejection — nothing was changed." >&2
+      echo "  A rejection recorded against the wrong card would mark a question answered that nobody asked and leave the real one open. Re-run with --decision $OPEN_DECISION_ID, or run 'task-state.sh status $ID' to read the open card." >&2
+      exit 1
+    fi
+
+    require_restorable_state "$ID" "decision_from"
+    RESTORE="$RESTORE_STATE"
+    if [ "$RESTORE" = "missing" ]; then
+      echo "ERROR: task '$ID' has no recorded prior state to restore to" >&2
+      exit 1
+    fi
+    require_appendable_array "$ID" "rejections"
+
+    SNAPSHOT=$(compute_snapshot)
+    NOW=$(now_iso)
+    atomic_update --arg id "$ID" --arg now "$NOW" --arg did "$RJ_DECISION" \
+      --arg by "$RJ_BY" --arg reason "$RJ_REASON" --arg snapshot "$SNAPSHOT" \
+      --arg restore "$RESTORE" '
+      .tasks[$id].rejections = ((.tasks[$id].rejections // []) + [{
+          decision_id: $did,
+          rejected_by: $by,
+          reason: $reason,
+          code_snapshot: $snapshot,
+          rejected_at: $now
+        }])
+      | .tasks[$id].decisions = [ .tasks[$id].decisions[]
+          | if .decision_id == $did then (.status = "rejected" | .resolved_at = $now) else . end ]
+      | .tasks[$id].decision_from = null
+      | .tasks[$id].state = $restore
+      | .tasks[$id].updated_at = $now
+      | .tasks[$id].history += [{
+          from: "awaiting-decision", to: $restore, at: $now,
+          decision_id: $did, resolution: "rejected",
+          rejected_by: $by, reason: $reason
+        }]
+    '
+    echo "RECORDED-REJECTION $ID decision=$RJ_DECISION rejected_by=\"$RJ_BY\" state=$RESTORE"
+    echo "REASON: $RJ_REASON"
+    echo "NOTE: a rejection records NO approval, so 'check-approval $ID --scope \"...\"' is unaffected by it — the rejected option is still not approved, which is the whole point."
+    ;;
+
+  check-approval)
+    # Part 2.3. READ-ONLY: takes no lock, never writes.
+    #
+    # *** NONZERO NEVER MEANS "APPROVED". *** Read that again before editing
+    # anything below. Every nonzero code this subcommand can produce means "do
+    # NOT take the action; ask". The ONLY route to exit 0 is one validated
+    # approval record that matched on all three of scope, deployment impact and
+    # revision.
+    #   EXIT 0 => COVERED (scope + revision + deployment impact) => PROCEED.
+    #   EXIT 1 => NOT COVERED: no approval records at all.
+    #   EXIT 2 => bad usage => UNDETERMINED, do NOT proceed.
+    #   EXIT 3 => task does not exist / record unreadable => UNDETERMINED, do
+    #             NOT proceed; fix the task id and re-check.
+    #   EXIT 4 => NOT COVERED: no approval's scope covers this action.
+    #   EXIT 5 => NOT COVERED: the revision changed since the approval.
+    #   EXIT 6 => NOT COVERED: this action has deployment impact the approval
+    #             did not carry ("a merge approval is not permission for an
+    #             unexpected deployment").
+    #   EXIT 7 => UNDETERMINED: the revision could not be established (no
+    #             version control), so currency could not be checked.
+    # This is the same discipline, for the same reason, as
+    # check-external-action's contract above: a caller branching on exit status
+    # is the natural shell idiom, and an exit-code contract that reads the wrong
+    # way round in one edge case is how a safety mechanism becomes the cause of
+    # the thing it was built to prevent.
+    ID="${2:-}"
+    [ -n "$ID" ] || {
+      echo "Usage: task-state.sh check-approval <id> --scope \"<what you are about to do>\" [--deployment]" >&2
+      echo "  NONZERO NEVER MEANS APPROVED: 0 = covered, proceed; every other code = do NOT proceed." >&2
+      exit 2
+    }
+    if [ $# -ge 2 ]; then shift 2; else shift $#; fi
+
+    CA_SCOPE=""
+    # DEFAULT "no", and the default is the SAFE direction here, unlike
+    # `complete --staleness-verified` where a presence-only flag would have made
+    # "verified" the silent default. Here presence of --deployment only ever
+    # makes the check HARDER to pass (it additionally requires an approval that
+    # explicitly carried deployment impact). Its absence cannot authorise a
+    # deployment: it describes the action the CALLER says it is about to take,
+    # and a caller that is about to deploy without saying so has not been let
+    # through by this flag's default -- it has simply not asked the question it
+    # meant to ask. The recorded side of that pair, record-approval's
+    # --deployment-impact, is required precisely because THAT one could
+    # otherwise default toward permission.
+    CA_DEPLOYMENT="no"
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --scope) [ $# -ge 2 ] || { echo "ERROR: --scope requires a value" >&2; exit 2; }; CA_SCOPE="$2"; shift 2 ;;
+        # Valueless flag, so `shift 1` rather than the `[ $# -ge 2 ]` + `shift 2`
+        # guard the value-taking flags use. Called out rather than left to look
+        # like an omission.
+        --deployment) CA_DEPLOYMENT="yes"; shift ;;
+        *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
+      esac
+    done
+
+    require_nonblank "--scope" "$CA_SCOPE" \
+      "check-approval must be told what action it is being asked about; a blank scope could not be matched against any approval and would answer a question nobody asked"
+
+    # EVERY REFUSAL BELOW THAT COMES OUT OF THE SHARED GUARD FAMILY MUST EXIT 3,
+    # NOT 1. Exit 1 here is a meaningful answer of its own ("no approval
+    # records at all"), so a corruption refusal exiting 1 would be
+    # indistinguishable from it. Both are still "do NOT proceed" -- unlike
+    # check-external-action, where 1 means PROCEED and the distinction is
+    # safety-critical -- but conflating "there are no approvals" with "the
+    # record could not be read" would report a determinate answer for an
+    # undeterminable one, which is the same dishonesty in a smaller dose.
+    STATE_FAIL_EXIT=3
+
+    if [ ! -f "$STATE" ]; then
+      echo "ERROR: task '$ID' not found (no tasks recorded yet) — cannot determine whether any approval covers that action. UNDETERMINED: do NOT proceed (exit 3 is not an approval; NOTHING nonzero is)." >&2
+      exit 3
+    fi
+    # read_task_state (not require_task_state) so the not-found MESSAGE stays
+    # this subcommand's own, more specific one. A corrupt record still refuses
+    # inside read_task_state, at exit 3 per STATE_FAIL_EXIT above.
+    read_task_state "$ID"
+    if [ "$TASK_STATE_VALUE" = "missing" ]; then
+      echo "ERROR: task '$ID' not found — cannot determine whether any approval covers that action. UNDETERMINED: do NOT proceed (exit 3 is not an approval; NOTHING nonzero is); fix the task id and re-check." >&2
+      exit 3
+    fi
+
+    # Recompute the code identity live, right now, rather than trusting
+    # anything cached -- the same way `resume` does.
+    CA_CURRENT=$(compute_snapshot)
+    require_approval_verdict "$ID" "$CA_SCOPE" "$CA_DEPLOYMENT" "$CA_CURRENT"
+
+    case "$APPROVAL_VERDICT" in
+      ok)
+        echo "APPROVAL-COVERS $ID scope=\"$CA_SCOPE\" deployment=$CA_DEPLOYMENT — PROCEED."
+        [ -n "$APPROVAL_DETAIL" ] && echo "$APPROVAL_DETAIL"
+        echo "  Exit 0 means exactly: a recorded approval matches this scope, was granted at the revision the code is at now, and covers this action's deployment impact. It does NOT mean any recorded conditions have been checked — task-state.sh cannot evaluate free text. If conditions are printed above, satisfying them is yours to do."
+        exit 0
+        ;;
+      none)
+        echo "NOT-COVERED $ID scope=\"$CA_SCOPE\" — no approval has ever been recorded for this task. Do NOT proceed; raise a decision card ('task-state.sh record-decision $ID ...') and get one." >&2
+        exit 1
+        ;;
+      scope)
+        echo "NOT-COVERED $ID scope=\"$CA_SCOPE\" — approvals exist for this task, but none of them covers that action. Do NOT proceed." >&2
+        [ -n "$APPROVAL_DETAIL" ] && echo "$APPROVAL_DETAIL" >&2
+        echo "  Scope matching is a normalised EXACT match (case and whitespace are ignored; nothing else is). That is deliberate: a prefix or substring test would let an approval for \"merge PR 12\" cover \"merge PR 12 and deploy to production\". If this action genuinely is the approved one, use the approval's own wording; if it is not, raise a decision card." >&2
+        exit 4
+        ;;
+      revision)
+        echo "NOT-COVERED $ID scope=\"$CA_SCOPE\" — an approval covers that scope, but THE CODE HAS CHANGED since it was granted. Do NOT proceed." >&2
+        [ -n "$APPROVAL_DETAIL" ] && echo "$APPROVAL_DETAIL" >&2
+        echo "  DESIGN.md: persist approvals with their target revision, and ask again when the conditions materially change. The revision changed, so this approval no longer applies to the code you are about to act on. Reassess and raise a fresh decision card." >&2
+        exit 5
+        ;;
+      deployment)
+        echo "NOT-COVERED $ID scope=\"$CA_SCOPE\" — an approval covers that scope, but it does NOT carry deployment impact and you said this action does. Do NOT proceed." >&2
+        [ -n "$APPROVAL_DETAIL" ] && echo "$APPROVAL_DETAIL" >&2
+        echo "  DESIGN.md, verbatim: \"A merge approval is not permission for an unexpected deployment.\" Raise a decision card for the deployment and record an approval with --deployment-impact yes." >&2
+        exit 6
+        ;;
+      unverifiable)
+        echo "UNDETERMINED $ID scope=\"$CA_SCOPE\" — an approval covers that scope, but the revision could not be established, so whether it is still current CANNOT BE ANSWERED. Do NOT proceed." >&2
+        [ -n "$APPROVAL_DETAIL" ] && echo "$APPROVAL_DETAIL" >&2
+        echo "  At least one of those is the placeholder '$NO_GIT_SNAPSHOT' — what compute_snapshot returns when there is no version control to identify the code with. Two such values match for every possible state of the code, so reading that match as 'the revision is unchanged' would claim a check that did not happen. This degrades to ASK A HUMAN EVERY TIME, never to 'proceed': confirm by hand that the approval still applies to the code as it stands." >&2
+        exit 7
+        ;;
+      *)
+        # UNREACHABLE by construction: require_approval_verdict validates its
+        # verdict against exactly the six words above and refuses (exit 3)
+        # otherwise. Present anyway because the alternative to an explicit
+        # catch-all on a `case` that gates an action is falling through to exit
+        # 0, and exit 0 here means PROCEED.
+        echo "ERROR: task '$ID' — internal: unrecognised approval verdict '$APPROVAL_VERDICT'. UNDETERMINED: do NOT proceed." >&2
+        exit 3
+        ;;
+    esac
     ;;
 
   record-external-action)
@@ -1764,6 +2463,18 @@ Commands:
   unblock <id>
   pause <id> --next-action "<exact next action text>"
   resume <id>
+  record-decision <id> --blocked "<what is blocked>"
+                  --why "<why, including what was checked>"
+                  --recommend "<recommended option and reason>"
+                  --options "<each option's benefit and main pitfall>"
+                  --impact "<impact on scope, cost, and delivery>"
+                  --question "<one clear question>"
+  record-approval <id> --decision <decision-id> --scope "<what is approved>"
+                  --approved-by "<who/what approved>"
+                  --deployment-impact yes|no [--conditions "<text>"]
+  record-rejection <id> --decision <decision-id>
+                   --rejected-by "<who/what rejected>" --reason "<why>"
+  check-approval <id> --scope "<what you are about to do>" [--deployment]
   record-external-action <id> --key <idempotency-key> --description "<what was done>"
   check-external-action <id> --key <idempotency-key>
   record-assignment <id> --role builder|verifier --agent-type name
@@ -1778,9 +2489,53 @@ Commands:
 States: planned -> building -> checking -> done
         (any of planned/building/checking) -> blocked -> (restored state)
         (any of planned/building/checking) -> paused  -> (restored state)
+        (any of planned/building/checking) -> awaiting-decision
+                                                      -> (restored state)
         (building|checking) --fail--> building             (attempts remain)
         (building|checking) --fail--> needs-reassessment   (budget exhausted)
         needs-reassessment --reassess--> building|checking (the ONLY exit)
+        awaiting-decision --record-approval|record-rejection--> (restored
+                                                    state; the ONLY exits)
+
+Decision cards and scoped approvals: ROUTINE REPAIRS PROCEED UNTOUCHED — a
+failed attempt inside budget still goes fail -> building with no card and no
+approval. A MATERIAL deviation is raised explicitly with `record-decision`,
+whose six flags are DESIGN.md's six card elements (what is blocked; why,
+including what was checked; recommended option and reason; each option's
+benefit and main pitfall; impact on scope, cost and delivery; one clear
+question). All six are required and non-blank. The task then waits in
+`awaiting-decision`, where start/check/complete/fail/block/pause are ALL
+refused and complete-gate.sh refuses it too; record-assignment/record-evidence/
+record-external-action deliberately stay available, as they do for
+blocked/paused, because the session is still legitimately recording what it
+checked while a human is asked. Only `record-approval` or `record-rejection`
+releases it, and both restore the exact state the card was raised from. An
+approval records its scope, its target revision (computed here, never supplied),
+any conditions, who approved, and — explicitly, never inferred — whether it
+carries deployment impact.
+
+check-approval answers "is the action I am about to take covered by a valid
+approval?" with its exit status:
+  EXIT 0 = COVERED (scope + revision + deployment impact) -> PROCEED.
+  EXIT 1 = NOT COVERED: no approval records at all.
+  EXIT 2 = bad usage                  -> UNDETERMINED, do NOT proceed.
+  EXIT 3 = task not found/unreadable  -> UNDETERMINED, do NOT proceed.
+  EXIT 4 = NOT COVERED: no approval's scope covers this action.
+  EXIT 5 = NOT COVERED: the revision changed since the approval was granted.
+  EXIT 6 = NOT COVERED: this action has deployment impact the approval did not
+           carry. DESIGN.md: "A merge approval is not permission for an
+           unexpected deployment."
+  EXIT 7 = UNDETERMINED: the revision could not be established (no version
+           control), so currency could not be checked -> do NOT proceed.
+NONZERO NEVER MEANS "APPROVED". Every nonzero code above means ask, not act.
+Three disclosed limits: scope matching is a normalised EXACT match (never a
+prefix test — that would let "merge PR 12" cover "merge PR 12 and deploy to
+production"); `--conditions` is free text that check-approval prints back
+verbatim and explicitly does NOT evaluate; and one corrupt entry in a task's
+approvals array makes check-approval refuse for EVERY scope on that task
+(exit 3), not just that entry's own — deliberate, the same fail-closed
+whole-array validation attempts/checkpoints/external_actions use. One bad
+record blocks all approval checks on that task until it is repaired.
 
 Bounded repair: `fail` increments a monotonic attempts_used counter and
 requires a hypothesis that DIFFERS from the immediately preceding attempt's.
@@ -1801,17 +2556,22 @@ attempts_used has fallen behind its own recorded attempt history is refused
 too. A field that is genuinely ABSENT (a pre-2.2 record) still defaults.
 
 That same fail-closed rule covers EVERY decision-bearing field, not only the
-two counters: state, depends_on, blocked_from, paused_from, attempts (and its
-hypothesis / attempt_number), checkpoints (and its next_action /
-code_snapshot), external_actions (and its key), history, assignments, evidence
-and reassessments. Present but of the wrong type, null, or empty where the
+two counters: state, depends_on, blocked_from, paused_from, decision_from,
+attempts (and its hypothesis / attempt_number), checkpoints (and its
+next_action / code_snapshot), external_actions (and its key), decisions (and
+its decision_id / status), approvals (and its decision_id / scope /
+target_revision / approved_by / deployment_impact / conditions), history,
+assignments, evidence, reassessments and rejections. Present but of the wrong
+type, null, or empty where the
 schema always writes content => REFUSED, naming the task, the field and the
 offending value, with nothing written. Genuinely absent => still defaults,
 where a safe absent-case exists. `status` and `list` are display-only and are
 deliberately not hardened; they gate nothing.
 
---reason, --hypothesis, --specialist and --finding must all carry actual
-content: whitespace-only values are refused exactly as empty ones are.
+--reason, --hypothesis, --specialist, --finding, record-decision's six card
+flags, and record-approval's / record-rejection's --scope, --approved-by,
+--rejected-by and --decision must all carry actual content: whitespace-only
+values are refused exactly as empty ones are.
 
 Code-identity honesty: compute_snapshot returns the fixed placeholder
 "no-git-repository" when there is no version control to identify the code with.
@@ -1829,6 +2589,9 @@ Exit codes: 0 ok · 1 invalid transition / not found / duplicate id / unmet
             dependency / refused repair attempt (unchanged hypothesis)
             2 bad usage / missing jq dependency
             3 check-external-action ONLY: the task does not exist (see below)
+            3 check-approval ONLY: task not found / record unreadable
+            4/5/6/7 check-approval ONLY: scope not covered / revision changed /
+            deployment impact not covered / revision undeterminable (see above)
 
 check-external-action answers "is this key already recorded?" with its exit
 status, and it is easy to get backwards:
